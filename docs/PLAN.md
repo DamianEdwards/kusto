@@ -105,12 +105,11 @@ Build a standalone `kusto` executable CLI in C# using the latest stable `System.
 
 ## Current progress
 - Planning is complete and approved.
-- No implementation tasks have started yet.
+- Repository initialized locally and pushed to GitHub (https://github.com/DamianEdwards/kusto).
+- MIT license, README, and baseline .gitignore are in place.
+- Implementation tasks have not started yet.
 
 ## Next steps
 1. Start with bootstrap-solution-aot (the current ready todo).
-2. Set up native AOT publish settings and dependency baseline.
-3. Begin command scaffolding and shared infrastructure.
-
-
-
+2. Scaffold the .NET solution/projects and standalone publish flow.
+3. Configure native AOT settings and dependency baseline.
