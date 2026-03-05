@@ -1,0 +1,19 @@
+# Build outputs
+bin/
+obj/
+
+# User-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# IDE settings
+.vs/
+.vscode/
+.idea/
+
+# Logs and temp
+*.log
+*.tmp
+*.temp
