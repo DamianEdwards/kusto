@@ -266,7 +266,7 @@ public sealed class KustoHttpService(HttpClient httpClient, ITokenProvider token
                 ? "Kusto rejected the query or command. Check your syntax and verify the selected cluster and database."
                 : $"Kusto rejected the query or command: {detail}",
             HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden =>
-                "Kusto rejected this request because your identity does not have access. Run 'az login' and verify access to the cluster and database.",
+                "Kusto rejected this request because your identity does not have access. Run 'az login' and verify access to the cluster and database. For sovereign clouds, make sure Azure CLI is set to the matching cloud with 'az cloud set'.",
             _ => string.IsNullOrWhiteSpace(detail)
                 ? "Kusto request failed. Verify the cluster, database, and your access."
                 : $"Kusto request failed: {detail}"

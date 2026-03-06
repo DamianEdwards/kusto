@@ -329,6 +329,28 @@ public sealed class KustoHttpServiceTests
     }
 
     [Fact]
+    public async Task ExecuteQueryAsync_OnForbidden_IncludesCloudSelectionGuidance()
+    {
+        var handler = new RecordingHandler(() => new HttpResponseMessage(HttpStatusCode.Forbidden)
+        {
+            Content = new StringContent("Forbidden")
+        });
+        using var httpClient = new HttpClient(handler);
+        var service = new KustoHttpService(httpClient, new StaticTokenProvider("fake-token"), NullLogger<KustoHttpService>.Instance);
+
+        var exception = await Assert.ThrowsAsync<UserFacingException>(() =>
+            service.ExecuteQueryAsync(
+                "https://help.kusto.windows.net",
+                "Samples",
+                "StormEvents | take 1",
+                includeStatistics: false,
+                CancellationToken.None));
+
+        Assert.Contains("az login", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("az cloud set", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task ExecuteManagementCommandAsync_OnBadRequest_HidesServiceMetadata()
     {
         const string responseBody =

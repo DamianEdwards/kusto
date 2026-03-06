@@ -15,7 +15,7 @@ internal static class KustoWebExplorerUrlBuilder
             return null;
         }
 
-        var explorerBase = TryResolveExplorerBase(clusterUri.Host);
+        var explorerBase = KustoCloudEnvironmentResolver.TryResolve(clusterUrl)?.ExplorerBase;
         if (explorerBase is null)
         {
             return null;
@@ -26,28 +26,6 @@ internal static class KustoWebExplorerUrlBuilder
 
         return url.Length <= MaxUrlLength ? url : null;
     }
-
-    private static string? TryResolveExplorerBase(string host)
-    {
-        if (host.EndsWith(".kusto.windows.net", StringComparison.OrdinalIgnoreCase) ||
-            host.EndsWith(".kusto.fabric.microsoft.com", StringComparison.OrdinalIgnoreCase))
-        {
-            return "https://dataexplorer.azure.com";
-        }
-
-        if (host.EndsWith(".kusto.usgovcloudapi.net", StringComparison.OrdinalIgnoreCase))
-        {
-            return "https://dataexplorer.azure.us";
-        }
-
-        if (host.EndsWith(".kusto.chinacloudapi.cn", StringComparison.OrdinalIgnoreCase))
-        {
-            return "https://dataexplorer.azure.cn";
-        }
-
-        return null;
-    }
-
     private static byte[] CompressQuery(string query)
     {
         var queryBytes = Encoding.UTF8.GetBytes(query);

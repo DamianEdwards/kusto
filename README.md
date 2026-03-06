@@ -10,6 +10,7 @@ A native command-line tool for Azure Data Explorer (Kusto), focused on quick exp
 - Run KQL from inline text, files, or stdin (`query`)
 - Include Azure Data Explorer Web Explorer deeplinks in query results
 - Show optional query execution statistics with `--show-stats`
+- Basic public, US Government, and China cloud support for token audience selection and Web Explorer links
 - Multiple output formats (`human`, `json`, `markdown`/`md`)
 - Configurable log verbosity with structured console/file logging
 
@@ -21,6 +22,8 @@ If your current credential chain cannot authenticate to Kusto, sign in with Azur
 ```powershell
 az login
 ```
+
+For sovereign clouds, set Azure CLI to the matching cloud before signing in (for example `az cloud set --name AzureUSGovernment` or `az cloud set --name AzureChinaCloud`). The CLI currently auto-selects Kusto token audiences and Web Explorer bases for public, US Government, and China cluster URLs.
 
 ## Quick start
 

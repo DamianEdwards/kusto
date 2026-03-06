@@ -16,6 +16,8 @@ public sealed class ErrorMapperTests
     {
         var message = ErrorMapper.Map(new AuthenticationFailedException("auth failed"));
         Assert.Contains("Authentication failed", message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("az login", message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("az cloud set", message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -23,5 +25,6 @@ public sealed class ErrorMapperTests
     {
         var message = ErrorMapper.Map(new CredentialUnavailableException("credential unavailable"));
         Assert.Contains("az login", message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("az cloud set", message, StringComparison.OrdinalIgnoreCase);
     }
 }
