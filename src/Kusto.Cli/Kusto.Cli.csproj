@@ -9,6 +9,10 @@
     <Nullable>enable</Nullable>
     <PublishAot>true</PublishAot>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <Company>Damian Edwards</Company>
+    <Product>Kusto CLI</Product>
+    <Copyright>Copyright © 2026 Damian Edwards</Copyright>
+    <Authors>Damian Edwards</Authors>
   </PropertyGroup>
 
   <ItemGroup>

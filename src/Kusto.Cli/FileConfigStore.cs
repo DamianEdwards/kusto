@@ -2,16 +2,11 @@ using System.Text.Json;
 
 namespace Kusto.Cli;
 
-public sealed class FileConfigStore : IConfigStore
+public sealed class FileConfigStore(string? configPath = null) : IConfigStore
 {
-    private readonly string _configPath;
-
-    public FileConfigStore(string? configPath = null)
-    {
-        _configPath = string.IsNullOrWhiteSpace(configPath)
+    private readonly string _configPath = string.IsNullOrWhiteSpace(configPath)
             ? ResolveDefaultConfigPath()
             : configPath;
-    }
 
     public async Task<KustoConfig> LoadAsync(CancellationToken cancellationToken)
     {

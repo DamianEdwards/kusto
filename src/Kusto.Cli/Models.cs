@@ -12,18 +12,12 @@ public sealed class CliOutput
     public bool IsQueryResultTable { get; init; }
 }
 
-public sealed class TabularData
+public sealed class TabularData(IReadOnlyList<string> columns, IReadOnlyList<IReadOnlyList<string?>> rows)
 {
     public static TabularData Empty { get; } = new([], []);
 
-    public TabularData(IReadOnlyList<string> columns, IReadOnlyList<IReadOnlyList<string?>> rows)
-    {
-        Columns = columns;
-        Rows = rows;
-    }
-
-    public IReadOnlyList<string> Columns { get; }
-    public IReadOnlyList<IReadOnlyList<string?>> Rows { get; }
+    public IReadOnlyList<string> Columns { get; } = columns;
+    public IReadOnlyList<IReadOnlyList<string?>> Rows { get; } = rows;
 
     public bool TryGetColumnIndex(string columnName, out int columnIndex)
     {
@@ -45,7 +39,7 @@ public sealed class KustoConfig
 {
     public List<KnownCluster> Clusters { get; set; } = [];
     public string? DefaultClusterUrl { get; set; }
-    public Dictionary<string, string> DefaultDatabases { get; set; } = [with(StringComparer.OrdinalIgnoreCase)];
+    public Dictionary<string, string> DefaultDatabases { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 public sealed class KnownCluster
