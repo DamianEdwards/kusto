@@ -46,6 +46,11 @@ public static class ClusterUtilities
         }
 
         config.Clusters ??= [];
+        config.SchemaCache ??= new SchemaCacheConfig();
+        config.SchemaCache.Overrides ??= [];
+        config.SchemaCache.Path = string.IsNullOrWhiteSpace(config.SchemaCache.Path)
+            ? null
+            : config.SchemaCache.Path.Trim();
 
         var normalizedDatabases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (config.DefaultDatabases is not null)
@@ -73,6 +78,25 @@ public static class ClusterUtilities
             current.Name = current.Name.Trim();
             current.Url = NormalizeClusterUrl(current.Url);
         }
+
+        var normalizedOverrides = new List<SchemaCacheOverride>();
+        foreach (var current in config.SchemaCache.Overrides)
+        {
+            if (string.IsNullOrWhiteSpace(current.ClusterUrl) ||
+                string.IsNullOrWhiteSpace(current.Database))
+            {
+                continue;
+            }
+
+            normalizedOverrides.Add(new SchemaCacheOverride
+            {
+                ClusterUrl = NormalizeClusterUrl(current.ClusterUrl),
+                Database = current.Database.Trim(),
+                TtlSeconds = current.TtlSeconds
+            });
+        }
+
+        config.SchemaCache.Overrides = normalizedOverrides;
 
         return config;
     }

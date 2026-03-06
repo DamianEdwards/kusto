@@ -458,22 +458,14 @@ public static class CommandFactory
                 var resolvedCluster = runtime.ConnectionResolver.ResolveCluster(config, clusterReference);
                 var resolvedDatabase = runtime.ConnectionResolver.ResolveDatabase(config, resolvedCluster.Url, databaseName);
 
-                var command = $".show table ['{EscapeKustoLiteral(tableName)}'] schema as json";
-                var result = await runtime.KustoService.ExecuteManagementCommandAsync(
-                    resolvedCluster.Url,
-                    resolvedDatabase,
-                    command,
-                    null,
-                    ct);
-
-                if (result.Rows.Count == 0)
-                {
-                    throw new UserFacingException($"Table '{tableName}' was not found.");
-                }
-
                 return new CliOutput
                 {
-                    Properties = ConvertRowToProperties(result, 0)
+                    Properties = await runtime.TableSchemaProvider.GetTablePropertiesAsync(
+                        config,
+                        resolvedCluster.Url,
+                        resolvedDatabase,
+                        tableName,
+                        ct)
                 };
             }, cancellationToken);
         });
@@ -628,6 +620,6 @@ public static class CommandFactory
 
     private static string EscapeKustoLiteral(string input)
     {
-        return input.Replace("'", "''", StringComparison.Ordinal);
+        return KustoCommandText.EscapeSingleQuotedLiteral(input);
     }
 }

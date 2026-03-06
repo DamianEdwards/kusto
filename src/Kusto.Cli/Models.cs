@@ -127,12 +127,28 @@ public sealed class KustoConfig
     public List<KnownCluster> Clusters { get; set; } = [];
     public string? DefaultClusterUrl { get; set; }
     public Dictionary<string, string> DefaultDatabases { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public SchemaCacheConfig SchemaCache { get; set; } = new();
 }
 
 public sealed class KnownCluster
 {
     public string Name { get; set; } = string.Empty;
     public string Url { get; set; } = string.Empty;
+}
+
+public sealed class SchemaCacheConfig
+{
+    public bool Enabled { get; set; } = true;
+    public string? Path { get; set; }
+    public int TtlSeconds { get; set; } = SchemaCacheSettingsResolver.DefaultTtlSeconds;
+    public List<SchemaCacheOverride> Overrides { get; set; } = [];
+}
+
+public sealed class SchemaCacheOverride
+{
+    public string ClusterUrl { get; set; } = string.Empty;
+    public string Database { get; set; } = string.Empty;
+    public int TtlSeconds { get; set; } = SchemaCacheSettingsResolver.DefaultTtlSeconds;
 }
 
 public sealed class ResolvedCluster(string? name, string url)
@@ -179,4 +195,14 @@ internal sealed class ParsedKustoTable(string? tableName, string? tableKind, IRe
     public string? TableKind { get; } = tableKind;
     public IReadOnlyList<string> Columns { get; } = columns;
     public IReadOnlyList<IReadOnlyList<string?>> Rows { get; } = rows;
+}
+
+internal sealed class DatabaseSchemaCacheEntry
+{
+    public int CacheFormatVersion { get; set; } = 1;
+    public string ClusterUrl { get; set; } = string.Empty;
+    public string DatabaseName { get; set; } = string.Empty;
+    public DateTimeOffset CachedAtUtc { get; set; }
+    public string? SchemaVersion { get; set; }
+    public string SchemaJson { get; set; } = string.Empty;
 }

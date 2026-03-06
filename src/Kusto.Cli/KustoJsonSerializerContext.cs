@@ -13,6 +13,8 @@ namespace Kusto.Cli;
 [JsonSerializable(typeof(Dictionary<string, string?>))]
 [JsonSerializable(typeof(KnownCluster))]
 [JsonSerializable(typeof(KustoConfig))]
+[JsonSerializable(typeof(SchemaCacheConfig))]
+[JsonSerializable(typeof(SchemaCacheOverride))]
 [JsonSerializable(typeof(KustoRequestPayload))]
 [JsonSerializable(typeof(KustoRequestProperties))]
 [JsonSerializable(typeof(KustoResponsePayload))]
@@ -29,6 +31,7 @@ namespace Kusto.Cli;
 [JsonSerializable(typeof(QueryResultStatistics))]
 [JsonSerializable(typeof(QueryCrossClusterStatistics))]
 [JsonSerializable(typeof(Dictionary<string, QueryCrossClusterStatistics>))]
+[JsonSerializable(typeof(DatabaseSchemaCacheEntry))]
 [JsonSerializable(typeof(TabularData))]
 internal sealed partial class KustoJsonSerializerContext : JsonSerializerContext
 {

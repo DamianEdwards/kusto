@@ -82,8 +82,20 @@ public static class CliRunner
         var tokenProvider = new AzureTokenProvider();
         var httpClient = new HttpClient();
         var kustoService = new KustoHttpService(httpClient, tokenProvider, loggerFactory.CreateLogger<KustoHttpService>());
+        var tableSchemaProvider = new TableSchemaProvider(
+            kustoService,
+            new SchemaCacheSettingsResolver(),
+            loggerFactory.CreateLogger<TableSchemaProvider>());
         var formatter = new OutputFormatter();
 
-        return new CliRuntime(loggerFactory, logger, httpClient, configStore, connectionResolver, kustoService, formatter);
+        return new CliRuntime(
+            loggerFactory,
+            logger,
+            httpClient,
+            configStore,
+            connectionResolver,
+            kustoService,
+            tableSchemaProvider,
+            formatter);
     }
 }

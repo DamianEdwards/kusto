@@ -13,6 +13,7 @@ A native command-line tool for Azure Data Explorer (Kusto), focused on quick exp
 - Show optional query execution statistics with `--show-stats`
 - Basic public, US Government, and China cloud support for token audience selection and Web Explorer links
 - Multiple output formats (`human`, `json`, `markdown`/`md`)
+- Optional table schema caching with TTL-based revalidation for repeated `table show` calls
 - Configurable log verbosity with structured console/file logging
 - GitHub Actions workflows for PR validation, versioned native release assets, and release promotion
 
@@ -58,6 +59,10 @@ Example (PowerShell):
 ```powershell
 $env:KUSTO_CONFIG_PATH = "C:\temp\kusto\config.json"
 ```
+
+## Schema cache
+
+`table show` uses an on-disk schema cache by default for repeated schema discovery. For configuration, cache locations, disable/override behavior, and usage examples, see [docs/schema-cache.md](docs/schema-cache.md).
 
 ## Global options
 

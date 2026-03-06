@@ -40,6 +40,16 @@ public interface IOutputFormatter
     string Format(CliOutput output, OutputFormat format);
 }
 
+public interface ITableSchemaProvider
+{
+    Task<Dictionary<string, string?>> GetTablePropertiesAsync(
+        KustoConfig config,
+        string clusterUrl,
+        string database,
+        string tableName,
+        CancellationToken cancellationToken);
+}
+
 public enum OutputFormat
 {
     Human,
@@ -54,6 +64,7 @@ public sealed class CliRuntime(
     IConfigStore configStore,
     IKustoConnectionResolver connectionResolver,
     IKustoService kustoService,
+    ITableSchemaProvider tableSchemaProvider,
     IOutputFormatter outputFormatter) : IDisposable
 {
     public ILoggerFactory LoggerFactory { get; } = loggerFactory;
@@ -62,6 +73,7 @@ public sealed class CliRuntime(
     public IConfigStore ConfigStore { get; } = configStore;
     public IKustoConnectionResolver ConnectionResolver { get; } = connectionResolver;
     public IKustoService KustoService { get; } = kustoService;
+    public ITableSchemaProvider TableSchemaProvider { get; } = tableSchemaProvider;
     public IOutputFormatter OutputFormatter { get; } = outputFormatter;
 
     public void Dispose()
