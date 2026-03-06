@@ -185,18 +185,8 @@ jobs:
           NEW_PHASE=$(echo "$NEW_STATE_JSON" | jq -r '.phase')
           NEW_PHASE_NUMBER=$(echo "$NEW_STATE_JSON" | jq -r '.phaseNumber')
           STATE_STRING="${NEW_BASE}|${NEW_PHASE}|${NEW_PHASE_NUMBER}|0|none"
-
-          if gh release view dev --repo "${{ github.repository }}" --json isDraft &>/dev/null; then
-            gh release delete dev --repo "${{ github.repository }}" --yes --cleanup-tag
-          fi
-
-          gh release create dev \
-            --repo "${{ github.repository }}" \
-            --target "${{ github.sha }}" \
-            --draft \
-            --prerelease \
-            --title "Development Build" \
-            --notes "## Development Build
+          NOTES=$(cat <<EOF
+          ## Development Build
 
           **Last Published Release:** v${VERSION}
           **Next Dev Version:** ${NEXT_DEV_VERSION}
@@ -207,4 +197,22 @@ jobs:
           Release shipped successfully. The next push to main will publish fresh development assets.
 
           <!-- VERSION_STATE: ${STATE_STRING} -->
-          "
+          EOF
+          )
+
+          if gh release view dev --repo "${{ github.repository }}" --json isDraft &>/dev/null; then
+            gh release edit dev \
+              --repo "${{ github.repository }}" \
+              --draft \
+              --prerelease \
+              --title "Development Build" \
+              --notes "$NOTES"
+          else
+            gh release create dev \
+              --repo "${{ github.repository }}" \
+              --target "${{ github.sha }}" \
+              --draft \
+              --prerelease \
+              --title "Development Build" \
+              --notes "$NOTES"
+          fi
