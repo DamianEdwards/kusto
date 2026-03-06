@@ -1,5 +1,6 @@
 @echo off
 setlocal
 
-dotnet run --project ".\src\Kusto.Cli" -- %*
+set "SCRIPT_DIR=%~dp0"
+dotnet run --project "%SCRIPT_DIR%src\Kusto.Cli\Kusto.Cli.csproj" -- %*
 exit /b %ERRORLEVEL%
