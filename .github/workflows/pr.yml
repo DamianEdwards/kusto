@@ -14,7 +14,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Build
         uses: ./.github/actions/build
@@ -29,10 +29,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
         with:
           dotnet-version: '10.0.x'
 
@@ -46,7 +46,7 @@ jobs:
         run: dotnet test kusto.slnx --configuration Release --no-build --nologo --tl:off --logger "trx;LogFileName=test-results-${{ matrix.os }}.trx" --logger "html;LogFileName=test-results-${{ matrix.os }}.html" --results-directory ./test-results
 
       - name: Upload test results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: test-results-${{ matrix.os }}
@@ -55,30 +55,3 @@ jobs:
             ./test-results/*.html
           retention-days: 30
 
-  test-results:
-    name: Publish Test Results
-    needs: test
-    if: always()
-    runs-on: ubuntu-latest
-
-    permissions:
-      checks: write
-      pull-requests: write
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download all test results
-        uses: actions/download-artifact@v4
-        with:
-          pattern: test-results-*
-          path: ./test-results
-          merge-multiple: true
-
-      - name: Publish test results
-        uses: dorny/test-reporter@v1
-        with:
-          name: Test Results
-          path: ./test-results/*.trx
-          reporter: dotnet-trx
