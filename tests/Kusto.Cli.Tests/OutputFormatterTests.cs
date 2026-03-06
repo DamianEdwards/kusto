@@ -71,12 +71,13 @@ public sealed class OutputFormatterTests
     }
 
     [Fact]
-    public void FormatJson_QueryOutput_IncludesStatistics()
+    public void FormatJson_QueryOutput_IncludesWebExplorerUrlAndStatistics()
     {
         var formatter = new OutputFormatter();
         var output = new CliOutput
         {
             Table = new TabularData(["Name"], [["alpha"]]),
+            WebExplorerUrl = "https://dataexplorer.azure.com/clusters/help.kusto.windows.net/databases/Samples?query=abc",
             Statistics = new QueryStatistics
             {
                 ExecutionTimeSec = 1.23,
@@ -90,18 +91,22 @@ public sealed class OutputFormatterTests
         var rendered = formatter.Format(output, OutputFormat.Json);
 
         using var document = JsonDocument.Parse(rendered);
+        Assert.Equal(
+            "https://dataexplorer.azure.com/clusters/help.kusto.windows.net/databases/Samples?query=abc",
+            document.RootElement.GetProperty("webExplorerUrl").GetString());
         Assert.Equal(1.23, document.RootElement.GetProperty("statistics").GetProperty("executionTimeSec").GetDouble());
         Assert.Equal(5.2, document.RootElement.GetProperty("statistics").GetProperty("network").GetProperty("crossClusterMb").GetDouble());
         Assert.False(document.RootElement.GetProperty("statistics").TryGetProperty("rows", out _));
     }
 
     [Fact]
-    public void FormatHuman_QueryOutput_RendersStatisticsSection()
+    public void FormatHuman_QueryOutput_HidesWebExplorerUrlByDefault()
     {
         var formatter = new OutputFormatter();
         var output = new CliOutput
         {
             Table = new TabularData(["Name"], [["alpha"]]),
+            WebExplorerUrl = "https://dataexplorer.azure.com/clusters/help.kusto.windows.net/databases/Samples?query=abc",
             Statistics = new QueryStatistics
             {
                 ExecutionTimeSec = 1.23,
@@ -114,19 +119,21 @@ public sealed class OutputFormatterTests
 
         var rendered = formatter.Format(output, OutputFormat.Human);
 
+        Assert.Contains("Open in Web Explorer", rendered, StringComparison.Ordinal);
         Assert.Contains("Statistics", rendered, StringComparison.Ordinal);
         Assert.Contains("ExecutionTimeSec", rendered, StringComparison.Ordinal);
         Assert.Contains("Result.RowCount", rendered, StringComparison.Ordinal);
-        Assert.Contains("alpha", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("WebExplorerUrl", rendered, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void FormatMarkdown_QueryOutput_RendersStatisticsSection()
+    public void FormatMarkdown_QueryOutput_HidesWebExplorerUrlByDefault()
     {
         var formatter = new OutputFormatter();
         var output = new CliOutput
         {
             Table = new TabularData(["Name"], [["alpha"]]),
+            WebExplorerUrl = "https://dataexplorer.azure.com/clusters/help.kusto.windows.net/databases/Samples?query=abc",
             Statistics = new QueryStatistics
             {
                 ExecutionTimeSec = 1.23
@@ -137,6 +144,7 @@ public sealed class OutputFormatterTests
 
         Assert.Contains("### Statistics", rendered, StringComparison.Ordinal);
         Assert.Contains("ExecutionTimeSec", rendered, StringComparison.Ordinal);
-        Assert.Contains("| Name |", rendered, StringComparison.Ordinal);
+        Assert.Contains("[Open in Web Explorer](", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("WebExplorerUrl", rendered, StringComparison.Ordinal);
     }
 }

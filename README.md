@@ -8,6 +8,7 @@ A native command-line tool for Azure Data Explorer (Kusto), focused on quick exp
 - Manage databases and defaults (`database` command group)
 - Browse tables and schemas (`table` command group)
 - Run KQL from inline text, files, or stdin (`query`)
+- Include Azure Data Explorer Web Explorer deeplinks in query results
 - Show optional query execution statistics with `--show-stats`
 - Multiple output formats (`human`, `json`, `markdown`/`md`)
 - Configurable log verbosity with structured console/file logging
@@ -173,6 +174,8 @@ kusto database list --cluster help --format json
 # Markdown for docs/issues
 kusto query "StormEvents | take 3" --cluster help --database Samples --format markdown
 ```
+
+Human and markdown output show a short `Open in Web Explorer` link when available instead of printing the raw `webExplorerUrl`; JSON output still includes `webExplorerUrl`, and `--show-stats` adds `statistics`.
 
 ## Logging
 

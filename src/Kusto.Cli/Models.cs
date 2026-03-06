@@ -9,6 +9,8 @@ public sealed class CliOutput
     public TabularData? Table { get; init; }
     public Dictionary<string, string?>? Properties { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? WebExplorerUrl { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public QueryStatistics? Statistics { get; init; }
     [JsonIgnore]
     public bool IsQueryResultTable { get; init; }
@@ -37,9 +39,10 @@ public sealed class TabularData(IReadOnlyList<string> columns, IReadOnlyList<IRe
     }
 }
 
-public sealed class QueryExecutionResult(TabularData table, QueryStatistics? statistics)
+public sealed class QueryExecutionResult(TabularData table, string? webExplorerUrl, QueryStatistics? statistics)
 {
     public TabularData Table { get; } = table;
+    public string? WebExplorerUrl { get; } = webExplorerUrl;
     public QueryStatistics? Statistics { get; } = statistics;
 }
 

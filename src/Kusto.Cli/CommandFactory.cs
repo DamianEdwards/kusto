@@ -519,6 +519,7 @@ public static class CommandFactory
                 return new CliOutput
                 {
                     Table = result.Table,
+                    WebExplorerUrl = result.WebExplorerUrl,
                     Statistics = result.Statistics,
                     IsQueryResultTable = true
                 };

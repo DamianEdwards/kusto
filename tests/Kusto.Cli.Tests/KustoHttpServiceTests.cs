@@ -97,6 +97,9 @@ public sealed class KustoHttpServiceTests
         Assert.Equal(["ValidationInline"], result.Table.Columns);
         Assert.Single(result.Table.Rows);
         Assert.Equal("1", result.Table.Rows[0][0]);
+        Assert.StartsWith(
+            "https://dataexplorer.azure.com/clusters/help.kusto.windows.net/databases/Samples?query=",
+            result.WebExplorerUrl);
         Assert.Null(result.Statistics);
     }
 

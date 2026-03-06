@@ -38,6 +38,7 @@ public sealed class KustoHttpService(HttpClient httpClient, ITokenProvider token
 
         return new QueryExecutionResult(
             new TabularData(primaryResult.Columns, primaryResult.Rows),
+            KustoWebExplorerUrlBuilder.Build(clusterUrl, database, query),
             includeStatistics ? KustoQueryStatisticsExtractor.Extract(tables) : null);
     }
 

@@ -75,6 +75,17 @@ public sealed class OutputFormatter : IOutputFormatter
             var table = CreateDataTable(output.Table, output.IsQueryResultTable, useAnsi);
 
             console.Write(table);
+            wroteSection = true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(output.WebExplorerUrl))
+        {
+            if (wroteSection)
+            {
+                console.WriteLine();
+            }
+
+            WriteWebExplorerLink(console, output.WebExplorerUrl, useAnsi);
         }
 
         return writer.ToString().TrimEnd();
@@ -121,6 +132,16 @@ public sealed class OutputFormatter : IOutputFormatter
             {
                 buffer.AppendLine($"| {string.Join(" | ", row.Select(value => EscapeMarkdown(value ?? string.Empty)))} |");
             }
+        }
+
+        if (!string.IsNullOrWhiteSpace(output.WebExplorerUrl))
+        {
+            if (buffer.Length > 0)
+            {
+                buffer.AppendLine();
+            }
+
+            buffer.AppendLine($"[Open in Web Explorer]({output.WebExplorerUrl})");
         }
 
         return buffer.ToString().TrimEnd();
@@ -239,6 +260,17 @@ public sealed class OutputFormatter : IOutputFormatter
     private static string EscapeMarkdown(string value)
     {
         return value.Replace("|", "\\|", StringComparison.Ordinal);
+    }
+
+    private static void WriteWebExplorerLink(IAnsiConsole console, string url, bool useAnsi)
+    {
+        if (useAnsi)
+        {
+            console.MarkupLine($"[link={Markup.Escape(url)}]Open in Web Explorer[/]");
+            return;
+        }
+
+        console.MarkupLine($"Open in Web Explorer: {Markup.Escape(url)}");
     }
 
     private static Table CreateDataTable(TabularData data, bool isQueryResultTable, bool useAnsi)
