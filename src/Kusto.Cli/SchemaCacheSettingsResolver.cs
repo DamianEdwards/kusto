@@ -8,7 +8,7 @@ public sealed class SchemaCacheSettingsResolver(
     Func<string>? getUserHomeDirectory = null,
     Func<OSPlatform, bool>? isOSPlatform = null)
 {
-    public const int DefaultTtlSeconds = (int)TimeSpan.FromHours(24).TotalSeconds;
+    public static readonly int DefaultTtlSeconds = (int)TimeSpan.FromHours(24).TotalSeconds;
     public const string CacheEnabledEnvironmentVariable = "KUSTO_SCHEMA_CACHE_ENABLED";
     public const string CachePathEnvironmentVariable = "KUSTO_SCHEMA_CACHE_PATH";
     public const string CacheTtlEnvironmentVariable = "KUSTO_SCHEMA_CACHE_TTL_SECONDS";
