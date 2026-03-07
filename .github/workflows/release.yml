@@ -147,7 +147,7 @@ jobs:
   sign-windows:
     runs-on: windows-2022
     needs: prepare-release
-    environment: Production
+    environment: production
 
     permissions:
       contents: read
