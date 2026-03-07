@@ -8,11 +8,12 @@ public sealed class SchemaCacheSettingsResolver(
     Func<string>? getUserHomeDirectory = null,
     Func<OSPlatform, bool>? isOSPlatform = null)
 {
-    public const int DefaultTtlSeconds = 24 * 60 * 60;
+    public const int DefaultTtlSeconds = TimeSpan.FromHours(24).TotalSeconds;
     public const string CacheEnabledEnvironmentVariable = "KUSTO_SCHEMA_CACHE_ENABLED";
     public const string CachePathEnvironmentVariable = "KUSTO_SCHEMA_CACHE_PATH";
     public const string CacheTtlEnvironmentVariable = "KUSTO_SCHEMA_CACHE_TTL_SECONDS";
 
+    // Funcs to allow for overriding in unit tests
     private readonly Func<string, string?> _getEnvironmentVariable = getEnvironmentVariable ?? Environment.GetEnvironmentVariable;
     private readonly Func<Environment.SpecialFolder, string> _getFolderPath = getFolderPath ?? Environment.GetFolderPath;
     private readonly Func<string> _getUserHomeDirectory = getUserHomeDirectory ?? (() => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
