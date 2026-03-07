@@ -167,31 +167,10 @@ jobs:
         shell: pwsh
         run: ./scripts/Expand-WindowsReleaseAssets.ps1 -BundleDirectory './artifacts/bundle' -WorkingDirectory './artifacts/windows-assets'
 
-      - name: Dump GitHub OIDC claims
-        shell: pwsh
-        run: |
-          $audience = 'api://AzureADTokenExchange'
-          $tokenResponse = Invoke-RestMethod -Headers @{
-            Authorization = "Bearer $env:ACTIONS_ID_TOKEN_REQUEST_TOKEN"
-          } -Uri "$env:ACTIONS_ID_TOKEN_REQUEST_URL&audience=$audience"
-
-          $jwtParts = $tokenResponse.value.Split('.')
-          if ($jwtParts.Length -lt 2) {
-            throw 'OIDC token response did not contain a valid JWT.'
-          }
-
-          $payload = $jwtParts[1].Replace('-', '+').Replace('_', '/')
-          switch ($payload.Length % 4) {
-            2 { $payload += '==' }
-            3 { $payload += '=' }
-          }
-
-          $claimsJson = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($payload))
-          $claims = $claimsJson | ConvertFrom-Json
-
-          Write-Host "OIDC issuer: $($claims.iss)"
-          Write-Host "OIDC subject: $($claims.sub)"
-          Write-Host "OIDC audience: $($claims.aud)"
+      - name: Setup .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          dotnet-version: '10.0.x'
 
       - name: Azure login
         uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5
