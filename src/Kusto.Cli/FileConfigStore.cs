@@ -8,6 +8,8 @@ public sealed class FileConfigStore(string? configPath = null) : IConfigStore
             ? ResolveDefaultConfigPath()
             : configPath;
 
+    public string ConfigPath => _configPath;
+
     public async Task<KustoConfig> LoadAsync(CancellationToken cancellationToken)
     {
         if (!File.Exists(_configPath))
@@ -23,7 +25,9 @@ public sealed class FileConfigStore(string? configPath = null) : IConfigStore
                 KustoJsonSerializerContext.Default.KustoConfig,
                 cancellationToken);
 
-            return ClusterUtilities.NormalizeConfig(config);
+            // Keep load recoverable when a newer CLI wrote an auth mode this version
+            // does not understand. Write paths still validate authentication strictly.
+            return ClusterUtilities.NormalizeConfig(config, validateAuthentication: false);
         }
         catch (JsonException ex)
         {
@@ -33,7 +37,11 @@ public sealed class FileConfigStore(string? configPath = null) : IConfigStore
 
     public async Task SaveAsync(KustoConfig config, CancellationToken cancellationToken)
     {
-        var normalized = ClusterUtilities.NormalizeConfig(config);
+        // Authentication is validated where it is created or changed. Preserve auth
+        // modes from newer CLI versions when an unrelated setting is saved.
+        var normalized = ClusterUtilities.NormalizeConfig(
+            config,
+            validateAuthentication: false);
         var directory = Path.GetDirectoryName(_configPath);
         if (!string.IsNullOrWhiteSpace(directory))
         {
@@ -58,5 +66,26 @@ public sealed class FileConfigStore(string? configPath = null) : IConfigStore
 
         var userProfilePath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         return Path.Combine(userProfilePath, ".kusto", "config.json");
+    }
+
+    /// <summary>
+    /// Resolves the effective configuration directory for the given config path (or the
+    /// default path when none is supplied). Used to anchor the authentication record store
+    /// and the deterministic protected token cache name.
+    /// </summary>
+    public static string ResolveConfigDirectory(string? configPath)
+    {
+        var effectivePath = string.IsNullOrWhiteSpace(configPath)
+            ? ResolveDefaultConfigPath()
+            : configPath;
+
+        var directory = Path.GetDirectoryName(Path.GetFullPath(effectivePath));
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            var userProfilePath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            directory = Path.Combine(userProfilePath, ".kusto");
+        }
+
+        return directory;
     }
 }

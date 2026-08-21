@@ -30,7 +30,7 @@ public sealed class TableSchemaProviderTests
                     Enabled = false
                 }
             },
-            "https://help.kusto.windows.net",
+            new ResolvedCluster(null, "https://help.kusto.windows.net"),
             "Samples",
             "StormEvents",
             refreshOfflineData: false,
@@ -63,7 +63,7 @@ public sealed class TableSchemaProviderTests
 
             var first = await provider.GetTableSchemaDetailsAsync(
                 config,
-                "https://help.kusto.windows.net",
+                new ResolvedCluster(null, "https://help.kusto.windows.net"),
                 "Samples",
                 "StormEvents",
                 refreshOfflineData: false,
@@ -71,7 +71,7 @@ public sealed class TableSchemaProviderTests
 
             var second = await provider.GetTableSchemaDetailsAsync(
                 config,
-                "https://help.kusto.windows.net",
+                new ResolvedCluster(null, "https://help.kusto.windows.net"),
                 "Samples",
                 "StormEvents",
                 refreshOfflineData: false,
@@ -114,12 +114,12 @@ public sealed class TableSchemaProviderTests
             var provider = CreateProvider(service, cacheDirectory, ttlSeconds: 60, timeProvider: timeProvider);
             var config = CreateCacheEnabledConfig(cacheDirectory, 60);
 
-            _ = await provider.GetTableSchemaDetailsAsync(config, "https://help.kusto.windows.net", "Samples", "StormEvents", false, CancellationToken.None);
+            _ = await provider.GetTableSchemaDetailsAsync(config, new ResolvedCluster(null, "https://help.kusto.windows.net"), "Samples", "StormEvents", false, CancellationToken.None);
 
             timeProvider.Advance(TimeSpan.FromMinutes(2));
 
-            _ = await provider.GetTableSchemaDetailsAsync(config, "https://help.kusto.windows.net", "Samples", "StormEvents", false, CancellationToken.None);
-            _ = await provider.GetTableSchemaDetailsAsync(config, "https://help.kusto.windows.net", "Samples", "StormEvents", false, CancellationToken.None);
+            _ = await provider.GetTableSchemaDetailsAsync(config, new ResolvedCluster(null, "https://help.kusto.windows.net"), "Samples", "StormEvents", false, CancellationToken.None);
+            _ = await provider.GetTableSchemaDetailsAsync(config, new ResolvedCluster(null, "https://help.kusto.windows.net"), "Samples", "StormEvents", false, CancellationToken.None);
 
             Assert.Equal(2, service.ManagementCommands.Count);
             Assert.Equal(".show database ['Samples'] schema as json", service.ManagementCommands[0]);
@@ -164,11 +164,11 @@ public sealed class TableSchemaProviderTests
             var provider = CreateProvider(service, cacheDirectory, ttlSeconds: 60, timeProvider: timeProvider);
             var config = CreateCacheEnabledConfig(cacheDirectory, 60);
 
-            var initial = await provider.GetTableSchemaDetailsAsync(config, "https://help.kusto.windows.net", "Samples", "StormEvents", false, CancellationToken.None);
+            var initial = await provider.GetTableSchemaDetailsAsync(config, new ResolvedCluster(null, "https://help.kusto.windows.net"), "Samples", "StormEvents", false, CancellationToken.None);
 
             timeProvider.Advance(TimeSpan.FromMinutes(2));
 
-            var refreshed = await provider.GetTableSchemaDetailsAsync(config, "https://help.kusto.windows.net", "Samples", "StormEvents", false, CancellationToken.None);
+            var refreshed = await provider.GetTableSchemaDetailsAsync(config, new ResolvedCluster(null, "https://help.kusto.windows.net"), "Samples", "StormEvents", false, CancellationToken.None);
 
             Assert.NotEqual(initial.Columns.Rows.Count, refreshed.Columns.Rows.Count);
             Assert.Equal(2, service.ManagementCommands.Count);
@@ -201,7 +201,7 @@ public sealed class TableSchemaProviderTests
             var provider = CreateProvider(service, cacheDirectory, ttlSeconds: 300);
             var details = await provider.GetTableSchemaDetailsAsync(
                 CreateCacheEnabledConfig(cacheDirectory, 300),
-                clusterUrl,
+                new ResolvedCluster(null, clusterUrl),
                 database,
                 "StormEvents",
                 refreshOfflineData: false,
@@ -252,7 +252,7 @@ public sealed class TableSchemaProviderTests
 
             var details = await provider.GetTableSchemaDetailsAsync(
                 config,
-                clusterUrl,
+                new ResolvedCluster(null, clusterUrl),
                 database,
                 "StormEvents",
                 refreshOfflineData: false,
@@ -292,7 +292,7 @@ public sealed class TableSchemaProviderTests
 
             var initial = await provider.GetTableSchemaDetailsAsync(
                 config,
-                "https://help.kusto.windows.net",
+                new ResolvedCluster(null, "https://help.kusto.windows.net"),
                 "Samples",
                 "OtherTable",
                 refreshOfflineData: false,
@@ -300,7 +300,7 @@ public sealed class TableSchemaProviderTests
 
             var details = await provider.GetTableSchemaDetailsAsync(
                 config,
-                "https://help.kusto.windows.net",
+                new ResolvedCluster(null, "https://help.kusto.windows.net"),
                 "Samples",
                 "StormEvents",
                 refreshOfflineData: false,
@@ -342,7 +342,7 @@ public sealed class TableSchemaProviderTests
 
             _ = await provider.GetTableSchemaDetailsAsync(
                 config,
-                "https://help.kusto.windows.net",
+                new ResolvedCluster(null, "https://help.kusto.windows.net"),
                 "Samples",
                 "StormEvents",
                 refreshOfflineData: true,
@@ -387,7 +387,7 @@ public sealed class TableSchemaProviderTests
             var provider = CreateProvider(new RecordingKustoService((_, _, _) => throw new InvalidOperationException("Should use cache.")), cacheDirectory, ttlSeconds: 300);
             var details = await provider.GetTableSchemaDetailsAsync(
                 CreateCacheEnabledConfig(cacheDirectory, 300),
-                clusterUrl,
+                new ResolvedCluster(null, clusterUrl),
                 database,
                 "StormEvents",
                 refreshOfflineData: false,
@@ -507,18 +507,18 @@ public sealed class TableSchemaProviderTests
         public List<string> ManagementCommands { get; } = [];
 
         public Task<TabularData> ExecuteManagementCommandAsync(
-            string clusterUrl,
+            ResolvedCluster cluster,
             string? database,
             string command,
             IReadOnlyDictionary<string, string>? queryParameters,
             CancellationToken cancellationToken)
         {
             ManagementCommands.Add(command);
-            return Task.FromResult(_responseFactory(clusterUrl, database ?? string.Empty, command));
+            return Task.FromResult(_responseFactory(cluster.Url, database ?? string.Empty, command));
         }
 
         public Task<QueryExecutionResult> ExecuteQueryAsync(
-            string clusterUrl,
+            ResolvedCluster cluster,
             string database,
             string query,
             bool includeStatistics,

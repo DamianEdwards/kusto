@@ -26,6 +26,7 @@ Grab the relevant executable asset from the latest [release](https://github.com/
 - Render compatible `render` results as terminal charts with `--chart`, as Mermaid in markdown output, or as PNG images via `--output-chart`
 - Show optional query execution statistics with `--show-stats`
 - Basic public, US Government, and China cloud support for token audience selection and Web Explorer links
+- Optional per-cluster Windows Account Manager (WAM) work-account sign-in for cross-tenant clusters (`cluster login`/`logout`, Windows-only, Azure Public Cloud)
 - Multiple output formats (`human`, `json`, `markdown`/`md`, plus query-only `csv`)
 - Optional offline table data with TTL-based schema revalidation, per-table notes, and import/export support
 - Configurable log verbosity with structured console/file logging
@@ -33,14 +34,40 @@ Grab the relevant executable asset from the latest [release](https://github.com/
 
 ## Authentication
 
-The CLI uses `DefaultAzureCredential`.  
-If your current credential chain cannot authenticate to Kusto, sign in with Azure CLI:
+By default the CLI authenticates with `DefaultAzureCredential`. If your current credential chain cannot authenticate to Kusto, sign in with Azure CLI:
 
 ```powershell
 az login
 ```
 
 For sovereign clouds, set Azure CLI to the matching cloud before signing in (for example `az cloud set --name AzureUSGovernment` or `az cloud set --name AzureChinaCloud`). The CLI currently auto-selects Kusto token audiences and Web Explorer bases for public, US Government, and China cluster URLs.
+
+### Per-cluster WAM (work account) authentication — Windows only
+
+Individual clusters can opt in to Windows Account Manager (WAM) brokered sign-in, which is useful when a cluster lives in a **different Entra tenant** than your default credential. WAM binds a cluster to a specific work account and tenant and acquires tokens silently through the native Windows broker; it never falls back to `DefaultAzureCredential`.
+
+```powershell
+# Configure a cluster for WAM (tenant GUID + work account UPN are both required)
+kusto cluster add cross-tenant https://cross-tenant.eastus2.kusto.windows.net --auth wam `
+    --tenant 11111111-1111-1111-1111-111111111111 --account you@contoso.com
+
+# Sign in (opens the Windows account picker once, then caches the sign-in)
+kusto cluster login cross-tenant
+
+# Run queries — token acquisition is silent from here on
+kusto query "MyTable | take 5" --cluster cross-tenant
+
+# Sign out (removes the stored sign-in but keeps the cluster configured)
+kusto cluster logout cross-tenant
+```
+
+Notes:
+
+- WAM is **Windows-only**. On other platforms WAM-configured clusters fail with an actionable message.
+- Only Azure Public Cloud `*.kusto.windows.net` clusters are supported for WAM today. The client app id is read from the cluster's own `/v1/rest/auth/metadata` endpoint.
+- Query-time authentication is strictly silent. If no valid sign-in exists (never signed in, or the cached sign-in expired), the command fails with `kusto cluster login <cluster>` guidance and never shows a UI.
+- `cluster login` accepts optional `--tenant`/`--account` to set or update the account binding before signing in; the values are saved for future logins.
+- Tokens are never written to config, sign-in records, logs, or output. Sign-in records live under an `auth` subdirectory of the config directory with SHA-256 filenames (no account name on disk).
 
 ## Quick start
 
@@ -85,6 +112,26 @@ Example (PowerShell):
 ```powershell
 $env:KUSTO_CONFIG_PATH = "C:\temp\kusto\config.json"
 ```
+
+Clusters that use the default `DefaultAzureCredential` flow have no `authentication` node. A WAM-configured cluster serializes an `authentication` object alongside its name and URL (never any token or secret):
+
+```json
+{
+  "clusters": [
+    {
+      "name": "cross-tenant",
+      "url": "https://cross-tenant.eastus2.kusto.windows.net",
+      "authentication": {
+        "mode": "wam",
+        "tenantId": "11111111-1111-1111-1111-111111111111",
+        "account": "you@contoso.com"
+      }
+    }
+  ]
+}
+```
+
+WAM sign-in records are stored separately from `config.json`, under an `auth` subdirectory of the config directory, using SHA-256 filenames.
 
 ## Chart rendering
 
@@ -260,9 +307,11 @@ These options are available on all commands:
 | `examples` | Show usage examples, aliases, and quick-start commands. | none | global options |
 | `cluster list` | List configured clusters and defaults. | none | global options |
 | `cluster show <cluster>` | Show details for one known cluster. | `cluster` (name or URL) | global options |
-| `cluster add <name> <url>` | Add a cluster to local config. | `name`, `url` | `--use`, global options |
+| `cluster add <name> <url>` | Add a cluster to local config. | `name`, `url` | `--use`, `--auth`, `--tenant`, `--account`, global options |
 | `cluster remove <cluster>` | Remove a known cluster and its default DB mapping. | `cluster` (name or URL) | global options |
 | `cluster set-default <cluster>` | Set the default cluster. | `cluster` (name or URL) | global options |
+| `cluster login <cluster>` | Sign in to a WAM-configured cluster and store its sign-in record (Windows only). | `cluster` (name or URL) | `--tenant`, `--account`, global options |
+| `cluster logout <cluster>` | Remove the stored sign-in for a WAM-configured cluster; the cluster stays configured. | `cluster` (name or URL) | global options |
 | `database list` | List databases in a cluster. | none | `--cluster`, `--filter`, `--take`, global options |
 | `database show <database>` | Show details for one database. | `database` | `--cluster`, global options |
 | `database set-default <database>` | Set default database for a cluster. | `database` | `--cluster`, global options |
@@ -291,6 +340,9 @@ These options are available on all commands:
 | `--clear-offline-data` | `table [<table>]` | Clear offline data for one table or for all tables. Alias: `-c`. |
 | `--force` | destructive `table` / `table notes` actions | Skip the confirmation prompt when clearing or purging offline data. Alias: `-f`. |
 | `--use` | `cluster add` | Also set the added cluster as the active/default cluster. |
+| `--auth <default\|wam>` | `cluster add` | Authentication mode for the cluster. Default is `default` (`DefaultAzureCredential`). `wam` uses Windows broker sign-in and requires `--tenant` and `--account`. |
+| `--tenant <tenantId>` | `cluster add`, `cluster login` | Entra tenant GUID to authenticate against. Required with `--auth wam`; on `cluster login` it sets/updates the saved tenant. |
+| `--account <user@domain>` | `cluster add`, `cluster login` | Work account UPN that sign-in is bound to. Required with `--auth wam`; on `cluster login` it sets/updates the saved account. |
 | `--file <path>` | `query` | Read query text from file. Append `:<start>-<end>` to read an inclusive 1-based line range. Alias: `-f`. Cannot be combined with inline query argument. |
 | `--chart` | `query` | Render compatible query results as a chart for `human` or `markdown` output. Not supported with `json` or `csv`. |
 | `--output-chart <path>` | `query` | Write the rendered chart as a PNG to the given path. Works with any `--format`. For `human`/`markdown`/`json` the raw tabular data is suppressed and a chart-written confirmation is emitted on stdout. For `csv` the CSV stream stays on stdout and the chart-written confirmation goes to stderr. Path must end in `.png`. Parent directories are created automatically. |
@@ -657,4 +709,3 @@ dotnet publish ./src/Kusto.Cli/ --os linux [--arch <arch>]
 ## License
 
 MIT
-

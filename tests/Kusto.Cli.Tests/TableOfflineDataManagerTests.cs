@@ -273,7 +273,7 @@ public sealed class TableOfflineDataManagerTests
         private readonly Func<string, TabularData> _managementCommandHandler = managementCommandHandler;
 
         public Task<TabularData> ExecuteManagementCommandAsync(
-            string clusterUrl,
+            ResolvedCluster cluster,
             string? database,
             string command,
             IReadOnlyDictionary<string, string>? queryParameters,
@@ -283,7 +283,7 @@ public sealed class TableOfflineDataManagerTests
         }
 
         public Task<QueryExecutionResult> ExecuteQueryAsync(
-            string clusterUrl,
+            ResolvedCluster cluster,
             string database,
             string query,
             bool includeStatistics,

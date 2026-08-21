@@ -94,10 +94,19 @@ function Get-RequiredPayloadFileNames
     {
         'win'
         {
+            $architecture = $RuntimeIdentifier.Split('-', 2)[1]
+            $msalRuntime = switch ($architecture)
+            {
+                'x64' { 'msalruntime.dll' }
+                'arm64' { 'msalruntime_arm64.dll' }
+                default { throw "Unsupported Windows architecture in runtime identifier '$RuntimeIdentifier'." }
+            }
+
             return @(
                 $BinaryName,
                 'libSkiaSharp.dll',
                 'libHarfBuzzSharp.dll',
+                $msalRuntime,
                 'LICENSE'
             )
         }
@@ -159,6 +168,7 @@ function Invoke-DotNetPublish
         if (-not [string]::IsNullOrWhiteSpace($vsDevCmdPath))
         {
             $targetArchitecture = Get-WindowsTargetArchitecture -Rid $Rid
+            $vsInstallerDirectory = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer'
             $commandSegments = @(
                 'call',
                 (Quote-CmdArgument -Value $vsDevCmdPath),
@@ -169,7 +179,20 @@ function Invoke-DotNetPublish
                 'dotnet'
             ) + ($Arguments | ForEach-Object { Quote-CmdArgument -Value $_ })
 
-            & cmd.exe /d /c ($commandSegments -join ' ')
+            $originalPath = $env:PATH
+            try
+            {
+                if (Test-Path $vsInstallerDirectory)
+                {
+                    $env:PATH = "$vsInstallerDirectory;$originalPath"
+                }
+
+                & cmd.exe /d /c ($commandSegments -join ' ')
+            }
+            finally
+            {
+                $env:PATH = $originalPath
+            }
             return
         }
     }

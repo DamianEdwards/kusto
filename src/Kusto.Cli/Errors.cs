@@ -13,6 +13,7 @@ public static class ErrorMapper
         return exception switch
         {
             UserFacingException userFacingException => userFacingException.Message,
+            AuthenticationRequiredException => "Interactive sign-in is required. Run 'kusto cluster login <cluster>' to sign in to this cluster.",
             CredentialUnavailableException => "No Azure credential could be resolved. Run 'az login' and verify access to the target cluster. For sovereign clouds, make sure Azure CLI is set to the matching cloud with 'az cloud set'.",
             AuthenticationFailedException => "Authentication failed. Run 'az login' and verify that you can access this cluster. For sovereign clouds, make sure Azure CLI is set to the matching cloud with 'az cloud set'.",
             HttpRequestException => "The request to Kusto failed. Verify the cluster URL and your network connectivity.",

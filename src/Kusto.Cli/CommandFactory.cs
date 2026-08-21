@@ -152,18 +152,22 @@ public static class CommandFactory
                 foreach (var cluster in config.Clusters.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase))
                 {
                     config.DefaultDatabases.TryGetValue(cluster.Url, out var defaultDatabase);
+                    var isWam = ClusterAuthenticationModes.IsWam(cluster.Authentication);
                     rows.Add(
                     [
                         cluster.Name,
                         cluster.Url,
                         string.Equals(config.DefaultClusterUrl, cluster.Url, StringComparison.OrdinalIgnoreCase) ? "*" : string.Empty,
-                        defaultDatabase
+                        defaultDatabase,
+                        isWam ? ClusterAuthenticationModes.Wam : ClusterAuthenticationModes.Default,
+                        isWam ? cluster.Authentication?.Account : null,
+                        isWam ? cluster.Authentication?.TenantId : null
                     ]);
                 }
 
                 return new CliOutput
                 {
-                    Table = new TabularData(["Name", "Url", "Default", "DefaultDatabase"], rows)
+                    Table = new TabularData(["Name", "Url", "Default", "DefaultDatabase", "Auth", "Account", "Tenant"], rows)
                 };
             }, cancellationToken);
         });
@@ -191,15 +195,25 @@ public static class CommandFactory
 
                 var normalizedUrl = ClusterUtilities.NormalizeClusterUrl(cluster.Url);
                 config.DefaultDatabases.TryGetValue(normalizedUrl, out var defaultDatabase);
+                var isWam = ClusterAuthenticationModes.IsWam(cluster.Authentication);
+                var properties = new Dictionary<string, string?>
+                {
+                    ["Name"] = cluster.Name,
+                    ["Url"] = normalizedUrl,
+                    ["Default"] = string.Equals(config.DefaultClusterUrl, normalizedUrl, StringComparison.OrdinalIgnoreCase) ? "true" : "false",
+                    ["DefaultDatabase"] = defaultDatabase,
+                    ["Auth"] = isWam ? ClusterAuthenticationModes.Wam : ClusterAuthenticationModes.Default
+                };
+
+                if (isWam)
+                {
+                    properties["Account"] = cluster.Authentication?.Account;
+                    properties["Tenant"] = cluster.Authentication?.TenantId;
+                }
+
                 return new CliOutput
                 {
-                    Properties = new Dictionary<string, string?>
-                    {
-                        ["Name"] = cluster.Name,
-                        ["Url"] = normalizedUrl,
-                        ["Default"] = string.Equals(config.DefaultClusterUrl, normalizedUrl, StringComparison.OrdinalIgnoreCase) ? "true" : "false",
-                        ["DefaultDatabase"] = defaultDatabase
-                    }
+                    Properties = properties
                 };
             }, cancellationToken);
         });
@@ -208,9 +222,25 @@ public static class CommandFactory
         var clusterNameArgument = new Argument<string>("name") { Description = "Friendly cluster name." };
         var clusterUrlArgument = new Argument<string>("url") { Description = "Azure Data Explorer cluster URL." };
         var useOption = new Option<bool>("--use") { Description = "Also set this cluster as the active/default cluster." };
+        var addAuthOption = new Option<string?>("--auth")
+        {
+            Description = "Authentication mode for this cluster: default (DefaultAzureCredential) or wam (Windows broker, cross-tenant)."
+        };
+        addAuthOption.AcceptOnlyFromAmong(ClusterAuthenticationModes.Default, ClusterAuthenticationModes.Wam);
+        var addTenantOption = new Option<string?>("--tenant")
+        {
+            Description = "Entra tenant GUID to authenticate against. Required with --auth wam."
+        };
+        var addAccountOption = new Option<string?>("--account")
+        {
+            Description = "Work account UPN (user@domain) to bind sign-in to. Required with --auth wam."
+        };
         addCommand.Add(clusterNameArgument);
         addCommand.Add(clusterUrlArgument);
         addCommand.Add(useOption);
+        addCommand.Add(addAuthOption);
+        addCommand.Add(addTenantOption);
+        addCommand.Add(addAccountOption);
         addCommand.SetAction((parseResult, cancellationToken) =>
         {
             var format = parseResult.GetRequiredValue(formatOption);
@@ -218,9 +248,13 @@ public static class CommandFactory
             var name = parseResult.GetRequiredValue(clusterNameArgument);
             var url = parseResult.GetRequiredValue(clusterUrlArgument);
             var setAsDefault = parseResult.GetValue(useOption);
+            var authMode = parseResult.GetValue(addAuthOption);
+            var tenant = parseResult.GetValue(addTenantOption);
+            var account = parseResult.GetValue(addAccountOption);
 
             return CliRunner.RunAsync(format, logLevel, async (runtime, ct) =>
             {
+                var authentication = ClusterAuthenticationParser.ParseForAdd(authMode, tenant, account);
                 var config = await runtime.ConfigStore.LoadAsync(ct);
                 var normalizedUrl = ClusterUtilities.NormalizeClusterUrl(url);
                 if (ClusterUtilities.FindKnownCluster(config, name) is not null)
@@ -236,7 +270,8 @@ public static class CommandFactory
                 config.Clusters.Add(new KnownCluster
                 {
                     Name = name,
-                    Url = normalizedUrl
+                    Url = normalizedUrl,
+                    Authentication = authentication
                 });
 
                 if (setAsDefault || string.IsNullOrWhiteSpace(config.DefaultClusterUrl))
@@ -245,9 +280,12 @@ public static class CommandFactory
                 }
 
                 await runtime.ConfigStore.SaveAsync(config, ct);
+                var authSuffix = authentication is not null
+                    ? $" using WAM sign-in for '{authentication.Account}'. Run 'kusto cluster login {name}' to sign in."
+                    : ".";
                 var message = setAsDefault
-                    ? $"Added cluster '{name}' ({normalizedUrl}) and set it as default."
-                    : $"Added cluster '{name}' ({normalizedUrl}).";
+                    ? $"Added cluster '{name}' ({normalizedUrl}) and set it as default{authSuffix}"
+                    : $"Added cluster '{name}' ({normalizedUrl}){authSuffix}";
                 return new CliOutput { Message = message };
             }, cancellationToken);
         });
@@ -306,11 +344,95 @@ public static class CommandFactory
             }, cancellationToken);
         });
 
+        var loginCommand = new Command("login", "Sign in to a WAM-configured cluster and store its authentication record. Windows only.")
+        {
+            clusterReferenceArgument
+        };
+        var loginTenantOption = new Option<string?>("--tenant")
+        {
+            Description = "Entra tenant GUID to authenticate against. Saved for future logins."
+        };
+        var loginAccountOption = new Option<string?>("--account")
+        {
+            Description = "Work account UPN (user@domain) to bind sign-in to. Saved for future logins."
+        };
+        loginCommand.Add(loginTenantOption);
+        loginCommand.Add(loginAccountOption);
+        loginCommand.SetAction((parseResult, cancellationToken) =>
+        {
+            var format = parseResult.GetRequiredValue(formatOption);
+            var logLevel = parseResult.GetValue(logLevelOption);
+            var clusterReference = parseResult.GetRequiredValue(clusterReferenceArgument);
+            var tenant = parseResult.GetValue(loginTenantOption);
+            var account = parseResult.GetValue(loginAccountOption);
+
+            return CliRunner.RunAsync(format, logLevel, async (runtime, ct) =>
+            {
+                var config = await runtime.ConfigStore.LoadAsync(ct);
+                var cluster = ClusterUtilities.FindKnownCluster(config, clusterReference) ??
+                    throw new UserFacingException(
+                        $"Cluster '{clusterReference}' is not known. Add it first with 'kusto cluster add <name> <url> --auth wam --tenant <tenantId> --account <user@domain>'.");
+
+                var resolvedAuthentication = ClusterAuthenticationParser.ResolveForLogin(cluster.Authentication, tenant, account);
+                var resolvedCluster = new ResolvedCluster(
+                    cluster.Name,
+                    ClusterUtilities.NormalizeClusterUrl(cluster.Url),
+                    resolvedAuthentication);
+                await runtime.ClusterAuthenticationService.LoginAsync(resolvedCluster, ct);
+
+                cluster.Authentication = resolvedAuthentication;
+                await runtime.ConfigStore.SaveAsync(config, ct);
+
+                return new CliOutput
+                {
+                    Message = $"Signed in to cluster '{cluster.Name}' as '{resolvedAuthentication.Account}'."
+                };
+            }, cancellationToken);
+        });
+
+        var logoutCommand = new Command("logout", "Remove the stored authentication record for a WAM-configured cluster. The cluster stays configured.")
+        {
+            clusterReferenceArgument
+        };
+        logoutCommand.SetAction((parseResult, cancellationToken) =>
+        {
+            var format = parseResult.GetRequiredValue(formatOption);
+            var logLevel = parseResult.GetValue(logLevelOption);
+            var clusterReference = parseResult.GetRequiredValue(clusterReferenceArgument);
+
+            return CliRunner.RunAsync(format, logLevel, async (runtime, ct) =>
+            {
+                var config = await runtime.ConfigStore.LoadAsync(ct);
+                var cluster = ClusterUtilities.FindKnownCluster(config, clusterReference) ??
+                    throw new UserFacingException($"Cluster '{clusterReference}' is not known.");
+
+                if (!ClusterAuthenticationModes.IsWam(cluster.Authentication))
+                {
+                    throw new UserFacingException($"Cluster '{cluster.Name}' is not configured for WAM authentication, so there is no sign-in to remove.");
+                }
+
+                var resolvedCluster = new ResolvedCluster(
+                    cluster.Name,
+                    ClusterUtilities.NormalizeClusterUrl(cluster.Url),
+                    cluster.Authentication);
+                var removed = await runtime.ClusterAuthenticationService.LogoutAsync(resolvedCluster, ct);
+
+                return new CliOutput
+                {
+                    Message = removed
+                        ? $"Signed out of cluster '{cluster.Name}'. The cluster configuration was kept."
+                        : $"No stored sign-in was found for cluster '{cluster.Name}'."
+                };
+            }, cancellationToken);
+        });
+
         clusterCommand.Add(listCommand);
         clusterCommand.Add(showCommand);
         clusterCommand.Add(addCommand);
         clusterCommand.Add(removeCommand);
         clusterCommand.Add(setDefaultCommand);
+        clusterCommand.Add(loginCommand);
+        clusterCommand.Add(logoutCommand);
         return clusterCommand;
     }
 
@@ -346,7 +468,7 @@ public static class CommandFactory
                 var query = ListQueryBuilder.Build(".show databases | project DatabaseName", "DatabaseName", filterValue, takeValue);
 
                 var databases = await runtime.KustoService.ExecuteManagementCommandAsync(
-                    resolvedCluster.Url,
+                    resolvedCluster,
                     null,
                     query.Command,
                     query.Parameters,
@@ -391,7 +513,7 @@ public static class CommandFactory
                 var config = await runtime.ConfigStore.LoadAsync(ct);
                 var resolvedCluster = runtime.ConnectionResolver.ResolveCluster(config, clusterReference);
                 var command = $".show databases details | where DatabaseName =~ '{EscapeKustoLiteral(databaseName)}'";
-                var result = await runtime.KustoService.ExecuteManagementCommandAsync(resolvedCluster.Url, null, command, null, ct);
+                var result = await runtime.KustoService.ExecuteManagementCommandAsync(resolvedCluster, null, command, null, ct);
 
                 if (result.Rows.Count == 0)
                 {
@@ -423,7 +545,7 @@ public static class CommandFactory
                 var config = await runtime.ConfigStore.LoadAsync(ct);
                 var resolvedCluster = runtime.ConnectionResolver.ResolveCluster(config, clusterReference);
                 var verifyCommand = $".show databases details | where DatabaseName =~ '{EscapeKustoLiteral(databaseName)}'";
-                var result = await runtime.KustoService.ExecuteManagementCommandAsync(resolvedCluster.Url, null, verifyCommand, null, ct);
+                var result = await runtime.KustoService.ExecuteManagementCommandAsync(resolvedCluster, null, verifyCommand, null, ct);
                 if (result.Rows.Count == 0)
                 {
                     throw new UserFacingException($"Database '{databaseName}' was not found.");
@@ -650,7 +772,7 @@ public static class CommandFactory
                 var query = ListQueryBuilder.Build(".show tables | project TableName", "TableName", filterValue, takeValue);
 
                 var result = await runtime.KustoService.ExecuteManagementCommandAsync(
-                    resolvedCluster.Url,
+                    resolvedCluster,
                     resolvedDatabase,
                     query.Command,
                     query.Parameters,
@@ -689,7 +811,7 @@ public static class CommandFactory
                 var resolvedDatabase = runtime.ConnectionResolver.ResolveDatabase(config, resolvedCluster.Url, databaseName);
                 var details = await runtime.TableSchemaProvider.GetTableSchemaDetailsAsync(
                     config,
-                    resolvedCluster.Url,
+                    resolvedCluster,
                     resolvedDatabase,
                     tableName,
                     refreshOfflineData,
@@ -946,7 +1068,7 @@ public static class CommandFactory
                 QueryValidator.Validate(query);
 
                 var result = await runtime.KustoService.ExecuteQueryAsync(
-                    resolvedCluster.Url,
+                    resolvedCluster,
                     resolvedDatabase,
                     query,
                     showStats,
@@ -1160,5 +1282,4 @@ public static class CommandFactory
         }
     }
 }
-
 

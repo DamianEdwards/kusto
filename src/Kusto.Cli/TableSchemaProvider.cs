@@ -17,13 +17,13 @@ public sealed class TableSchemaProvider(
 
     public async Task<TableSchemaDetails> GetTableSchemaDetailsAsync(
         KustoConfig config,
-        string clusterUrl,
+        ResolvedCluster cluster,
         string database,
         string tableName,
         bool refreshOfflineData,
         CancellationToken cancellationToken)
     {
-        var normalizedClusterUrl = ClusterUtilities.NormalizeClusterUrl(clusterUrl);
+        var normalizedClusterUrl = ClusterUtilities.NormalizeClusterUrl(cluster.Url);
         var settings = _settingsResolver.Resolve(config, normalizedClusterUrl, database);
         var existingEntry = await _offlineTableDataStore.TryReadEntryAsync(config, normalizedClusterUrl, database, cancellationToken);
 
@@ -32,7 +32,7 @@ public sealed class TableSchemaProvider(
 
         if (refreshOfflineData)
         {
-            schemaEntry = await FetchDatabaseSchemaEntryAsync(normalizedClusterUrl, database, existingEntry, cancellationToken);
+            schemaEntry = await FetchDatabaseSchemaEntryAsync(cluster, normalizedClusterUrl, database, existingEntry, cancellationToken);
             await _offlineTableDataStore.WriteEntryAsync(config, schemaEntry, cancellationToken);
             schemaJson = schemaEntry.SchemaJson;
         }
@@ -46,21 +46,21 @@ public sealed class TableSchemaProvider(
                 }
                 else
                 {
-                    schemaEntry = await RefreshCacheEntryAsync(existingEntry!, normalizedClusterUrl, database, cancellationToken);
+                    schemaEntry = await RefreshCacheEntryAsync(existingEntry!, cluster, normalizedClusterUrl, database, cancellationToken);
                     await _offlineTableDataStore.WriteEntryAsync(config, schemaEntry, cancellationToken);
                     schemaJson = schemaEntry.SchemaJson;
                 }
             }
             else
             {
-                schemaEntry = await FetchDatabaseSchemaEntryAsync(normalizedClusterUrl, database, existingEntry, cancellationToken);
+                schemaEntry = await FetchDatabaseSchemaEntryAsync(cluster, normalizedClusterUrl, database, existingEntry, cancellationToken);
                 await _offlineTableDataStore.WriteEntryAsync(config, schemaEntry, cancellationToken);
                 schemaJson = schemaEntry.SchemaJson;
             }
         }
         else
         {
-            schemaJson = await FetchDatabaseSchemaJsonAsync(normalizedClusterUrl, database, cancellationToken);
+            schemaJson = await FetchDatabaseSchemaJsonAsync(cluster, database, cancellationToken);
         }
 
         try
@@ -70,7 +70,7 @@ public sealed class TableSchemaProvider(
         catch (UserFacingException ex) when (!refreshOfflineData && settings.Enabled && HasSchema(existingEntry))
         {
             _logger.LogDebug(ex, "Refreshing cached schema for {ClusterUrl}/{Database} after a cache lookup miss.", normalizedClusterUrl, database);
-            schemaEntry = await FetchDatabaseSchemaEntryAsync(normalizedClusterUrl, database, existingEntry, cancellationToken);
+            schemaEntry = await FetchDatabaseSchemaEntryAsync(cluster, normalizedClusterUrl, database, existingEntry, cancellationToken);
             await _offlineTableDataStore.WriteEntryAsync(config, schemaEntry, cancellationToken);
             return DatabaseSchemaJson.BuildTableSchemaDetails(schemaEntry.SchemaJson, database, tableName, GetTableNotes(schemaEntry, tableName));
         }
@@ -78,13 +78,14 @@ public sealed class TableSchemaProvider(
 
     private async Task<DatabaseSchemaCacheEntry> RefreshCacheEntryAsync(
         DatabaseSchemaCacheEntry cacheEntry,
+        ResolvedCluster cluster,
         string clusterUrl,
         string database,
         CancellationToken cancellationToken)
     {
         if (!string.IsNullOrWhiteSpace(cacheEntry.SchemaVersion))
         {
-            var refreshedEntry = await TryFetchDatabaseSchemaIfUpdatedAsync(clusterUrl, database, cacheEntry, cancellationToken);
+            var refreshedEntry = await TryFetchDatabaseSchemaIfUpdatedAsync(cluster, clusterUrl, database, cacheEntry, cancellationToken);
             if (refreshedEntry is null)
             {
                 cacheEntry.CachedAtUtc = _timeProvider.GetUtcNow();
@@ -94,27 +95,29 @@ public sealed class TableSchemaProvider(
             return refreshedEntry;
         }
 
-        return await FetchDatabaseSchemaEntryAsync(clusterUrl, database, cacheEntry, cancellationToken);
+        return await FetchDatabaseSchemaEntryAsync(cluster, clusterUrl, database, cacheEntry, cancellationToken);
     }
 
     private async Task<DatabaseSchemaCacheEntry> FetchDatabaseSchemaEntryAsync(
+        ResolvedCluster cluster,
         string clusterUrl,
         string database,
         DatabaseSchemaCacheEntry? existingEntry,
         CancellationToken cancellationToken)
     {
-        var schemaJson = await FetchDatabaseSchemaJsonAsync(clusterUrl, database, cancellationToken);
+        var schemaJson = await FetchDatabaseSchemaJsonAsync(cluster, database, cancellationToken);
         return CreateCacheEntry(clusterUrl, database, schemaJson, existingEntry?.TableNotes);
     }
 
     private async Task<DatabaseSchemaCacheEntry?> TryFetchDatabaseSchemaIfUpdatedAsync(
+        ResolvedCluster cluster,
         string clusterUrl,
         string database,
         DatabaseSchemaCacheEntry existingEntry,
         CancellationToken cancellationToken)
     {
         var result = await _kustoService.ExecuteManagementCommandAsync(
-            clusterUrl,
+            cluster,
             database,
             BuildShowDatabaseSchemaCommand(database, existingEntry.SchemaVersion),
             null,
@@ -133,12 +136,12 @@ public sealed class TableSchemaProvider(
     }
 
     private async Task<string> FetchDatabaseSchemaJsonAsync(
-        string clusterUrl,
+        ResolvedCluster cluster,
         string database,
         CancellationToken cancellationToken)
     {
         var result = await _kustoService.ExecuteManagementCommandAsync(
-            clusterUrl,
+            cluster,
             database,
             BuildShowDatabaseSchemaCommand(database, null),
             null,

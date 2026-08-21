@@ -80,7 +80,18 @@ try
     # Structural check: required files must be present in the expanded payload.
     $requiredNames = switch ($platform)
     {
-        'win'   { @('kusto.exe', 'libSkiaSharp.dll', 'libHarfBuzzSharp.dll', 'LICENSE') }
+        'win'
+        {
+            $architecture = $RuntimeIdentifier.Split('-', 2)[1]
+            $msalRuntime = switch ($architecture)
+            {
+                'x64'   { 'msalruntime.dll' }
+                'arm64' { 'msalruntime_arm64.dll' }
+                default { throw "Unsupported Windows architecture in runtime identifier '$RuntimeIdentifier'." }
+            }
+
+            @('kusto.exe', 'libSkiaSharp.dll', 'libHarfBuzzSharp.dll', $msalRuntime, 'LICENSE')
+        }
         'linux' { @('kusto', 'libSkiaSharp.so', 'libHarfBuzzSharp.so', 'LICENSE') }
         'osx'   { @('kusto', 'libSkiaSharp.dylib', 'libHarfBuzzSharp.dylib', 'LICENSE') }
         default { throw "Unsupported platform '$platform'." }

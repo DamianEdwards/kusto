@@ -12,13 +12,19 @@ public sealed class KustoConnectionResolver : IKustoConnectionResolver
             }
 
             var knownDefault = ClusterUtilities.FindKnownCluster(config, config.DefaultClusterUrl);
-            return new ResolvedCluster(knownDefault?.Name, ClusterUtilities.NormalizeClusterUrl(config.DefaultClusterUrl));
+            return new ResolvedCluster(
+                knownDefault?.Name,
+                ClusterUtilities.NormalizeClusterUrl(config.DefaultClusterUrl),
+                knownDefault?.Authentication);
         }
 
         var knownCluster = ClusterUtilities.FindKnownCluster(config, clusterReference);
         if (knownCluster is not null)
         {
-            return new ResolvedCluster(knownCluster.Name, ClusterUtilities.NormalizeClusterUrl(knownCluster.Url));
+            return new ResolvedCluster(
+                knownCluster.Name,
+                ClusterUtilities.NormalizeClusterUrl(knownCluster.Url),
+                knownCluster.Authentication);
         }
 
         if (Uri.TryCreate(clusterReference, UriKind.Absolute, out _))

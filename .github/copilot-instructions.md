@@ -62,9 +62,11 @@ There is no separate lint command configured in this repository.
    - Use `UserFacingException` for expected CLI/user errors.
    - Let `ErrorMapper`/`CliRunner` surface concise messages; do not expose stack traces or raw HTTP status-code wording to users.
 
-2. **Authentication path is fixed**
-   - Token acquisition uses `DefaultAzureCredential` only (`AzureTokenProvider`).
-   - For credential/access failures, the UX guidance is to run `az login`; do not add alternate interactive auth flows in CLI commands.
+2. **Authentication is routed per cluster**
+   - Token acquisition is routed by `RoutingTokenProvider` based on each `ResolvedCluster`'s authentication mode.
+   - Clusters with no `authentication` (or `mode: default`) use `DefaultAzureCredential` (`AzureTokenProvider`); for those, credential/access failures guide the user to run `az login`.
+   - Clusters with `mode: wam` use the Windows broker (`WamTokenProvider`), acquire tokens silently, and must never fall back to `DefaultAzureCredential`. WAM failures must guide the user to `kusto cluster login <cluster>` — never `az login`.
+   - Query-time WAM auth is strictly silent (no UI). Interactive sign-in happens only through the explicit `cluster login`/`logout` commands (`IClusterAuthenticationService`).
 
 3. **Always normalize cluster URLs before persistence or lookup**
    - Use `ClusterUtilities.NormalizeClusterUrl(...)` and `ClusterUtilities.NormalizeConfig(...)`.

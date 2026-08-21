@@ -108,7 +108,45 @@ public static class CliRunner
         var logger = loggerFactory.CreateLogger("kusto");
         var configStore = new FileConfigStore(configPath);
         var connectionResolver = new KustoConnectionResolver();
-        var tokenProvider = new AzureTokenProvider();
+
+        var configDirectory = FileConfigStore.ResolveConfigDirectory(configPath);
+        var tokenCacheName = WamTokenCacheName.Resolve(configDirectory);
+        var authDirectory = Path.Combine(configDirectory, "auth");
+
+        var platform = SystemPlatform.Instance;
+        var windowHandleProvider = new SystemWindowHandleProvider();
+        var brokerCredentialFactory = new WamBrokerCredentialFactory();
+        var authenticationRecordStore = new AuthenticationRecordStore(
+            authDirectory,
+            loggerFactory.CreateLogger<AuthenticationRecordStore>());
+
+        // Metadata is read from the cluster's unauthenticated endpoint over a dedicated
+        // client that never follows redirects, so a request can never be steered off-origin.
+        var metadataHttpClient = new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false });
+        var metadataProvider = new KustoAuthMetadataProvider(
+            metadataHttpClient,
+            loggerFactory.CreateLogger<KustoAuthMetadataProvider>());
+
+        var defaultTokenProvider = new AzureTokenProvider();
+        var wamTokenProvider = new WamTokenProvider(
+            platform,
+            metadataProvider,
+            authenticationRecordStore,
+            brokerCredentialFactory,
+            windowHandleProvider,
+            tokenCacheName,
+            loggerFactory.CreateLogger<WamTokenProvider>());
+        var tokenProvider = new RoutingTokenProvider(defaultTokenProvider, wamTokenProvider);
+
+        var clusterAuthenticationService = new WamClusterAuthenticator(
+            platform,
+            metadataProvider,
+            authenticationRecordStore,
+            brokerCredentialFactory,
+            windowHandleProvider,
+            tokenCacheName,
+            loggerFactory.CreateLogger<WamClusterAuthenticator>());
+
         var httpClient = new HttpClient();
         var kustoService = new KustoHttpService(httpClient, tokenProvider, loggerFactory.CreateLogger<KustoHttpService>());
         var settingsResolver = new SchemaCacheSettingsResolver();
@@ -132,10 +170,12 @@ public static class CliRunner
             configStore,
             connectionResolver,
             kustoService,
+            clusterAuthenticationService,
             tableSchemaProvider,
             tableOfflineDataManager,
             confirmationPrompt,
-            formatter);
+            formatter,
+            metadataHttpClient);
     }
 
     private static void EnsureSupportedOutputFormat(string formatToken, OutputFormat format, IReadOnlyCollection<OutputFormat> supportedFormats)

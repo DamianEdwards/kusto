@@ -285,7 +285,7 @@ public sealed class TableOfflineDataManager(
                 continue;
             }
 
-            var liveTables = await GetLiveTablesAsync(entry.ClusterUrl, entry.DatabaseName, cancellationToken);
+            var liveTables = await GetLiveTablesAsync(config, entry.ClusterUrl, entry.DatabaseName, cancellationToken);
             var missingTables = trackedTables
                 .Where(table => !liveTables.Contains(table))
                 .ToList();
@@ -380,12 +380,13 @@ public sealed class TableOfflineDataManager(
     }
 
     private async Task<HashSet<string>> GetLiveTablesAsync(
+        KustoConfig config,
         string clusterUrl,
         string database,
         CancellationToken cancellationToken)
     {
         var result = await _kustoService.ExecuteManagementCommandAsync(
-            clusterUrl,
+            ClusterUtilities.ResolveClusterForUrl(config, clusterUrl),
             database,
             ".show tables | project TableName",
             null,

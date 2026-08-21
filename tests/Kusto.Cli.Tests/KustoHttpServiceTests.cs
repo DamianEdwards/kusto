@@ -45,7 +45,7 @@ public sealed class KustoHttpServiceTests
         var service = new KustoHttpService(httpClient, new StaticTokenProvider("fake-token"), NullLogger<KustoHttpService>.Instance);
 
         var result = await service.ExecuteManagementCommandAsync(
-            "https://help.kusto.windows.net",
+            new ResolvedCluster(null, "https://help.kusto.windows.net"),
             null,
             ".show databases | project DatabaseName",
             null,
@@ -88,7 +88,7 @@ public sealed class KustoHttpServiceTests
         var service = new KustoHttpService(httpClient, new StaticTokenProvider("fake-token"), NullLogger<KustoHttpService>.Instance);
 
         var result = await service.ExecuteQueryAsync(
-            "https://help.kusto.windows.net",
+            new ResolvedCluster(null, "https://help.kusto.windows.net"),
             "Samples",
             "print ValidationInline=1",
             includeStatistics: false,
@@ -165,7 +165,7 @@ public sealed class KustoHttpServiceTests
         var service = new KustoHttpService(httpClient, new StaticTokenProvider("fake-token"), NullLogger<KustoHttpService>.Instance);
 
         var result = await service.ExecuteQueryAsync(
-            "https://help.kusto.windows.net",
+            new ResolvedCluster(null, "https://help.kusto.windows.net"),
             "Samples",
             "StormEvents | summarize Count=count() by State | render piechart",
             includeStatistics: false,
@@ -312,7 +312,7 @@ public sealed class KustoHttpServiceTests
         var service = new KustoHttpService(httpClient, new StaticTokenProvider("fake-token"), NullLogger<KustoHttpService>.Instance);
 
         var result = await service.ExecuteQueryAsync(
-            "https://help.kusto.windows.net",
+            new ResolvedCluster(null, "https://help.kusto.windows.net"),
             "Samples",
             "print ValidationInline=1",
             includeStatistics: true,
@@ -373,7 +373,7 @@ public sealed class KustoHttpServiceTests
         var service = new KustoHttpService(httpClient, new StaticTokenProvider("fake-token"), NullLogger<KustoHttpService>.Instance);
 
         var result = await service.ExecuteQueryAsync(
-            "https://help.kusto.windows.net",
+            new ResolvedCluster(null, "https://help.kusto.windows.net"),
             "Samples",
             "print ValidationInline=1",
             includeStatistics: true,
@@ -396,7 +396,7 @@ public sealed class KustoHttpServiceTests
 
         var exception = await Assert.ThrowsAsync<UserFacingException>(() =>
             service.ExecuteQueryAsync(
-                "https://help.kusto.windows.net",
+                new ResolvedCluster(null, "https://help.kusto.windows.net"),
                 "Samples",
                 "invalid query;",
                 includeStatistics: false,
@@ -420,7 +420,7 @@ public sealed class KustoHttpServiceTests
 
         var exception = await Assert.ThrowsAsync<UserFacingException>(() =>
             service.ExecuteQueryAsync(
-                "https://help.kusto.windows.net",
+                new ResolvedCluster(null, "https://help.kusto.windows.net"),
                 "Samples",
                 "StormEvents | take 1",
                 includeStatistics: false,
@@ -448,7 +448,7 @@ public sealed class KustoHttpServiceTests
 
         var exception = await Assert.ThrowsAsync<UserFacingException>(() =>
             service.ExecuteManagementCommandAsync(
-                "https://help.kusto.windows.net",
+                new ResolvedCluster(null, "https://help.kusto.windows.net"),
                 "Samples",
                 ".show tables",
                 null,
@@ -475,7 +475,7 @@ public sealed class KustoHttpServiceTests
 
         var exception = await Assert.ThrowsAsync<UserFacingException>(() =>
             service.ExecuteQueryAsync(
-                "https://help.kusto.windows.net",
+                new ResolvedCluster(null, "https://help.kusto.windows.net"),
                 "Samples",
                 "StormEvents | take 1",
                 includeStatistics: false,
@@ -510,7 +510,7 @@ public sealed class KustoHttpServiceTests
         var service = new KustoHttpService(httpClient, new StaticTokenProvider("fake-token"), NullLogger<KustoHttpService>.Instance);
 
         _ = await service.ExecuteManagementCommandAsync(
-            "https://help.kusto.windows.net",
+            new ResolvedCluster(null, "https://help.kusto.windows.net"),
             null,
             "declare query_parameters(filterValue:string); .show databases | where DatabaseName contains filterValue",
             new Dictionary<string, string> { ["filterValue"] = "'Sam'" },
@@ -549,7 +549,7 @@ public sealed class KustoHttpServiceTests
         const string adeUrl = "https://ade.applicationinsights.io/subscriptions/00000000-0000-0000-0000-000000000000/resourcegroups/rg/providers/Microsoft.OperationalInsights/workspaces/ws";
 
         _ = await service.ExecuteQueryAsync(
-            adeUrl,
+            new ResolvedCluster(null, adeUrl),
             "ws",
             "AppTraces | take 1",
             includeStatistics: false,
@@ -587,7 +587,7 @@ public sealed class KustoHttpServiceTests
         const string adeUrl = "https://adx.monitor.azure.com/subscriptions/sub/resourcegroups/rg/providers/microsoft.insights/components/app";
 
         _ = await service.ExecuteManagementCommandAsync(
-            adeUrl,
+            new ResolvedCluster(null, adeUrl),
             "app",
             ".show tables",
             null,
@@ -601,7 +601,7 @@ public sealed class KustoHttpServiceTests
 
     private sealed class StaticTokenProvider(string token) : ITokenProvider
     {
-        public Task<string> GetTokenAsync(string clusterUrl, CancellationToken cancellationToken)
+        public Task<string> GetTokenAsync(ResolvedCluster cluster, CancellationToken cancellationToken)
         {
             return Task.FromResult(token);
         }
