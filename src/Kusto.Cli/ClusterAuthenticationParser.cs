@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace Kusto.Cli;
 
 /// <summary>
@@ -74,7 +76,10 @@ internal static class ClusterAuthenticationParser
         {
             Mode = ClusterAuthenticationModes.Wam,
             TenantId = effectiveTenant,
-            Account = effectiveAccount
+            Account = effectiveAccount,
+            ExtensionData = existingIsWam && existing!.ExtensionData is not null
+                ? new Dictionary<string, JsonElement>(existing.ExtensionData, StringComparer.Ordinal)
+                : null
         };
     }
 

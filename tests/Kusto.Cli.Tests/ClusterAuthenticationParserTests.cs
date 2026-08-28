@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace Kusto.Cli.Tests;
 
 public sealed class ClusterAuthenticationParserTests
@@ -104,6 +106,35 @@ public sealed class ClusterAuthenticationParserTests
 
         Assert.Equal(newTenant, result.TenantId);
         Assert.Equal("new@contoso.com", result.Account);
+    }
+
+    [Fact]
+    public void ResolveForLogin_PreservesExistingExtensionData()
+    {
+        var extensionData = new Dictionary<string, JsonElement>
+        {
+            ["futureOptions"] = JsonSerializer.Deserialize<JsonElement>(
+                """{"enabled":true}""")
+        };
+        var existing = new ClusterAuthentication
+        {
+            Mode = ClusterAuthenticationModes.Wam,
+            TenantId = WamTestSupport.TenantId,
+            Account = WamTestSupport.Account,
+            ExtensionData = extensionData
+        };
+
+        var result = ClusterAuthenticationParser.ResolveForLogin(
+            existing,
+            null,
+            null);
+
+        Assert.NotNull(result.ExtensionData);
+        Assert.NotSame(extensionData, result.ExtensionData);
+        Assert.True(
+            result.ExtensionData["futureOptions"]
+                .GetProperty("enabled")
+                .GetBoolean());
     }
 
     [Fact]
