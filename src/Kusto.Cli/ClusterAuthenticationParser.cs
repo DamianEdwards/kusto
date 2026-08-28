@@ -33,7 +33,7 @@ internal static class ClusterAuthenticationParser
                     throw new UserFacingException("WAM authentication requires both '--tenant' and '--account'.");
                 }
 
-                ValidateTenant(tenant);
+                tenant = NormalizeTenant(tenant);
                 ValidateAccount(account);
                 return new ClusterAuthentication
                 {
@@ -68,7 +68,7 @@ internal static class ClusterAuthenticationParser
                 "WAM login requires a tenant and account. Provide them with '--tenant <tenantId> --account <user@domain>'; they are saved for future logins.");
         }
 
-        ValidateTenant(effectiveTenant);
+        effectiveTenant = NormalizeTenant(effectiveTenant);
         ValidateAccount(effectiveAccount);
         return new ClusterAuthentication
         {
@@ -84,13 +84,15 @@ internal static class ClusterAuthenticationParser
     private static string? Trim(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    private static void ValidateTenant(string tenant)
+    private static string NormalizeTenant(string tenant)
     {
-        if (!Guid.TryParse(tenant, out _))
+        if (!Guid.TryParse(tenant, out var tenantId))
         {
             throw new UserFacingException(
                 $"'--tenant' must be a tenant GUID (for example '00000000-0000-0000-0000-000000000000'). '{tenant}' is not a valid GUID.");
         }
+
+        return tenantId.ToString("D");
     }
 
     private static void ValidateAccount(string account)

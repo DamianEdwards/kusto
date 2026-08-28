@@ -28,6 +28,19 @@ public sealed class ClusterAuthenticationParserTests
         Assert.Equal(WamTestSupport.Account, result.Account);
     }
 
+    [Theory]
+    [InlineData("{11111111-1111-1111-1111-111111111111}")]
+    [InlineData("11111111111111111111111111111111")]
+    public void ParseForAdd_WamCanonicalizesAcceptedGuidFormats(string tenant)
+    {
+        var result = ClusterAuthenticationParser.ParseForAdd(
+            "wam",
+            tenant,
+            WamTestSupport.Account);
+
+        Assert.Equal(WamTestSupport.TenantId, result!.TenantId);
+    }
+
     [Fact]
     public void ParseForAdd_WamMissingTenantOrAccount_Throws()
     {
@@ -91,6 +104,24 @@ public sealed class ClusterAuthenticationParserTests
 
         Assert.Equal(newTenant, result.TenantId);
         Assert.Equal("new@contoso.com", result.Account);
+    }
+
+    [Fact]
+    public void ResolveForLogin_CanonicalizesExistingTenant()
+    {
+        var existing = new ClusterAuthentication
+        {
+            Mode = ClusterAuthenticationModes.Wam,
+            TenantId = $"{{{WamTestSupport.TenantId}}}",
+            Account = WamTestSupport.Account
+        };
+
+        var result = ClusterAuthenticationParser.ResolveForLogin(
+            existing,
+            null,
+            null);
+
+        Assert.Equal(WamTestSupport.TenantId, result.TenantId);
     }
 
     [Fact]

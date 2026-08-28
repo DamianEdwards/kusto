@@ -274,7 +274,11 @@ public sealed class ClusterAuthenticationConfigTests
                       "authentication": {
                         "mode": "future-mode",
                         "tenantId": "future-tenant",
-                        "account": "future-account"
+                        "account": "future-account",
+                        "futureOptions": {
+                          "enabled": true,
+                          "scopes": ["query", "management"]
+                        }
                       }
                     }
                   ]
@@ -295,6 +299,13 @@ public sealed class ClusterAuthenticationConfigTests
             Assert.Equal("future-mode", authentication!.Mode);
             Assert.Equal("future-tenant", authentication.TenantId);
             Assert.Equal("future-account", authentication.Account);
+            var futureOptions = authentication.ExtensionData!["futureOptions"];
+            Assert.True(futureOptions.GetProperty("enabled").GetBoolean());
+            Assert.Equal(
+                ["query", "management"],
+                futureOptions.GetProperty("scopes")
+                    .EnumerateArray()
+                    .Select(value => value.GetString()));
         }
         finally
         {

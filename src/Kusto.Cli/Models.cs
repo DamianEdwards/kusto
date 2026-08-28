@@ -210,7 +210,8 @@ public sealed class ClusterAuthentication
     public string? TenantId { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Account { get; set; }
-
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
 }
 
 public static class ClusterAuthenticationModes

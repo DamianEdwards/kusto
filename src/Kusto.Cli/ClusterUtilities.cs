@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace Kusto.Cli;
 
 public static class ClusterUtilities
@@ -113,14 +115,7 @@ public static class ClusterUtilities
             return null;
         }
 
-        try
-        {
-            return ClusterAuthenticationParser.ParseForAdd(
-                authentication.Mode,
-                authentication.TenantId,
-                authentication.Account);
-        }
-        catch (UserFacingException) when (!validateAuthentication)
+        if (!validateAuthentication)
         {
             return new ClusterAuthentication
             {
@@ -130,9 +125,19 @@ public static class ClusterUtilities
                     : authentication.TenantId.Trim(),
                 Account = string.IsNullOrWhiteSpace(authentication.Account)
                     ? null
-                    : authentication.Account.Trim()
+                    : authentication.Account.Trim(),
+                ExtensionData = authentication.ExtensionData is null
+                    ? null
+                    : new Dictionary<string, JsonElement>(
+                        authentication.ExtensionData,
+                        StringComparer.Ordinal)
             };
         }
+
+        return ClusterAuthenticationParser.ParseForAdd(
+            authentication.Mode,
+            authentication.TenantId,
+            authentication.Account);
     }
 
     public static KnownCluster? FindKnownCluster(KustoConfig config, string clusterReference)

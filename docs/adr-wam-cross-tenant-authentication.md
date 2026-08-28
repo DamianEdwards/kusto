@@ -155,12 +155,6 @@ the foreground window as a fallback. Native calls use source-generated
 Rejected. It selected the active Azure CLI account and cannot reliably bind a
 saved cluster to a secondary Windows account.
 
-### Invoke the personal `WamToken.exe` helper
-
-Rejected as the product design. It is not part of the CLI distribution, would
-introduce an external token handoff, and its original
-`OperatingSystemAccount` flow cannot select a secondary account.
-
 ### Use direct MSAL broker APIs
 
 Viable, and proven by the first spike, but it requires the CLI to implement
