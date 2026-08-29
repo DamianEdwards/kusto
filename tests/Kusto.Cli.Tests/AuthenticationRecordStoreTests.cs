@@ -103,6 +103,22 @@ public sealed class AuthenticationRecordStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task TryLoad_UnsupportedRecordVersion_ReturnsNull()
+    {
+        var store = CreateStore();
+        var key = CreateKey();
+        Directory.CreateDirectory(_authDirectory);
+        var recordPath = Path.Combine(_authDirectory, key.FileName);
+        await File.WriteAllTextAsync(
+            recordPath,
+            $$"""
+            {"username":"{{WamTestSupport.Account}}","authority":"{{WamTestSupport.LoginHost}}","homeAccountId":"00000000-0000-0000-0000-000000000000.11111111-1111-1111-1111-111111111111","tenantId":"{{WamTestSupport.TenantId}}","clientId":"{{WamTestSupport.ClientId}}","version":"2.0"}
+            """);
+
+        Assert.Null(await store.TryLoadAsync(key, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task Delete_RemovesRecord()
     {
         var store = CreateStore();

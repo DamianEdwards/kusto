@@ -159,7 +159,7 @@ public static class CommandFactory
                         cluster.Url,
                         string.Equals(config.DefaultClusterUrl, cluster.Url, StringComparison.OrdinalIgnoreCase) ? "*" : string.Empty,
                         defaultDatabase,
-                        isWam ? ClusterAuthenticationModes.Wam : ClusterAuthenticationModes.Default,
+                        ClusterAuthenticationModes.GetDisplayName(cluster.Authentication),
                         isWam ? cluster.Authentication?.Account : null,
                         isWam ? cluster.Authentication?.TenantId : null
                     ]);
@@ -202,7 +202,7 @@ public static class CommandFactory
                     ["Url"] = normalizedUrl,
                     ["Default"] = string.Equals(config.DefaultClusterUrl, normalizedUrl, StringComparison.OrdinalIgnoreCase) ? "true" : "false",
                     ["DefaultDatabase"] = defaultDatabase,
-                    ["Auth"] = isWam ? ClusterAuthenticationModes.Wam : ClusterAuthenticationModes.Default
+                    ["Auth"] = ClusterAuthenticationModes.GetDisplayName(cluster.Authentication)
                 };
 
                 if (isWam)
@@ -1282,4 +1282,3 @@ public static class CommandFactory
         }
     }
 }
-

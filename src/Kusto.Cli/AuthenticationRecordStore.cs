@@ -126,7 +126,7 @@ internal sealed class AuthenticationRecordStore(string authDirectory, ILogger lo
             await using var stream = File.OpenRead(recordPath);
             record = await AuthenticationRecord.DeserializeAsync(stream, cancellationToken);
         }
-        catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or FormatException)
+        catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or FormatException or InvalidOperationException)
         {
             _logger.LogDebug(ex, "Stored authentication record could not be read; treating it as absent.");
             return null;

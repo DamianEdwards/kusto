@@ -219,6 +219,9 @@ public static class ClusterAuthenticationModes
     public const string Default = "default";
     public const string Wam = "wam";
 
+    public static string GetDisplayName(ClusterAuthentication? authentication) =>
+        authentication?.Mode ?? Default;
+
     public static bool IsDefault(ClusterAuthentication? authentication) =>
         authentication is null ||
         string.Equals(authentication.Mode, Default, StringComparison.OrdinalIgnoreCase);

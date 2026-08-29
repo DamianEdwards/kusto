@@ -83,6 +83,19 @@ public sealed class ClusterAuthenticationConfigTests
     }
 
     [Fact]
+    public void AuthenticationModeDisplayName_PreservesUnknownMode()
+    {
+        var authentication = new ClusterAuthentication { Mode = "future-mode" };
+
+        Assert.Equal(
+            "future-mode",
+            ClusterAuthenticationModes.GetDisplayName(authentication));
+        Assert.Equal(
+            ClusterAuthenticationModes.Default,
+            ClusterAuthenticationModes.GetDisplayName(null));
+    }
+
+    [Fact]
     public void NormalizeConfig_DropsExplicitDefaultAuthentication()
     {
         var config = new KustoConfig
