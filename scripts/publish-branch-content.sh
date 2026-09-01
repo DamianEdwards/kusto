@@ -22,8 +22,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
-git -C "$REPO_ROOT" fetch origin "$BRANCH" >/dev/null 2>&1 || true
-if git -C "$REPO_ROOT" show-ref --verify --quiet "refs/remotes/origin/${BRANCH}"; then
+REMOTE_BRANCH_REF=$(git -C "$REPO_ROOT" ls-remote --heads origin "refs/heads/${BRANCH}")
+if [[ -n "$REMOTE_BRANCH_REF" ]]; then
+  git -C "$REPO_ROOT" fetch origin "refs/heads/${BRANCH}:refs/remotes/origin/${BRANCH}" >/dev/null
   git -C "$REPO_ROOT" worktree add --detach "$WORKTREE_DIR" "origin/${BRANCH}" >/dev/null
   git -C "$WORKTREE_DIR" checkout -B "$BRANCH" "origin/${BRANCH}" >/dev/null
 else
@@ -44,5 +45,5 @@ git -C "$WORKTREE_DIR" \
   -c user.name="${GIT_AUTHOR_NAME:-github-actions[bot]}" \
   -c user.email="${GIT_AUTHOR_EMAIL:-41898282+github-actions[bot]@users.noreply.github.com}" \
   commit -m "$COMMIT_MESSAGE" >/dev/null
-git -C "$WORKTREE_DIR" push origin "HEAD:${BRANCH}" >/dev/null
+git -C "$WORKTREE_DIR" push origin "HEAD:refs/heads/${BRANCH}" >/dev/null
 git -C "$WORKTREE_DIR" rev-parse HEAD
