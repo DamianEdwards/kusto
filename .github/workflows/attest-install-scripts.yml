@@ -1,0 +1,87 @@
+name: Attest Install Scripts
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: attest-install-scripts-${{ github.ref }}
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  attest-and-release:
+    runs-on: windows-2022
+    environment: production
+    permissions:
+      attestations: write
+      contents: write
+      id-token: write
+    steps:
+      - name: Checkout immutable snapshot tag
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref }}
+      - name: Verify snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          test '${{ github.ref_type }}' = tag
+          [[ '${{ github.ref_name }}' == install-scripts-v* ]]
+          test "$(git cat-file -t 'refs/tags/${{ github.ref_name }}')" = tag ||
+            { echo "::error::Install script snapshot tag must be annotated."; exit 1; }
+          test -f ./install.ps1
+          test -f ./install.sh
+          test -f ./install-scripts.json
+          test -f ./checksums.txt
+          test "$(jq -r '.version' ./install-scripts.json)" = '${{ github.ref_name }}'
+          sha256sum --check ./checksums.txt
+          git fetch origin main install-scripts
+          TAG_SHA=$(git rev-list -n 1 '${{ github.ref_name }}')
+          git merge-base --is-ancestor "$TAG_SHA" origin/install-scripts ||
+            { echo "::error::Snapshot tag is not from the protected install-scripts branch."; exit 1; }
+          SOURCE_SHA=$(jq -r '.sourceCommit' ./install-scripts.json)
+          git merge-base --is-ancestor "$SOURCE_SHA" origin/main ||
+            { echo "::error::Install scripts were not published from main."; exit 1; }
+      - name: Verify install.ps1 Authenticode signature
+        shell: pwsh
+        run: |
+          $signature = Get-AuthenticodeSignature -FilePath './install.ps1'
+          if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+            throw "install.ps1 Authenticode signature is not valid: $($signature.StatusMessage)"
+          }
+          $expectedSubject = 'CN=Damian Edwards, O=Damian Edwards, L=Issaquah, S=Washington, C=US'
+          if ($signature.SignerCertificate.Subject -ne $expectedSubject) {
+            throw "install.ps1 signer '$($signature.SignerCertificate.Subject)' did not match '$expectedSubject'."
+          }
+      - name: Attest published install scripts
+        id: attest
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26
+        with:
+          subject-path: |
+            ./install.ps1
+            ./install.sh
+      - name: Stage portable attestation bundle
+        shell: bash
+        run: cp '${{ steps.attest.outputs.bundle-path }}' ./attestations.jsonl
+      - name: Publish immutable install script snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG='${{ github.ref_name }}'
+          if gh release view "$TAG" --repo '${{ github.repository }}' >/dev/null 2>&1; then
+            echo "::error::Snapshot release ${TAG} already exists; refusing to delete or recreate it."
+            exit 1
+          fi
+          gh release create "$TAG" \
+            --repo '${{ github.repository }}' \
+            --latest=false \
+            --title "$TAG" \
+            --notes "Immutable signed install-script snapshot published from the install-scripts branch." \
+            ./install.ps1 \
+            ./install.sh \
+            ./install-scripts.json \
+            ./checksums.txt \
+            ./attestations.jsonl

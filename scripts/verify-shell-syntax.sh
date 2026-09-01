@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+ROOT_PATH="${1:-$(cd "$(dirname "$0")/.." && pwd)}"
+
+if [[ ! -d "$ROOT_PATH" ]]; then
+    echo "Error: Root path '$ROOT_PATH' is not a directory." >&2
+    exit 1
+fi
+
+mapfile -t script_files < <(
+    find "$ROOT_PATH" -name '*.sh' -type f \
+        -not -path '*/.git/*' \
+        -not -path '*/artifacts/*' \
+        -not -path '*/bin/*' \
+        -not -path '*/obj/*' |
+        sort
+)
+
+if [[ ${#script_files[@]} -eq 0 ]]; then
+    echo "Error: No shell scripts were found under '$ROOT_PATH'." >&2
+    exit 1
+fi
+
+error_count=0
+for script_file in "${script_files[@]}"; do
+    if ! output=$(bash -n "$script_file" 2>&1); then
+        echo "$script_file: $output" >&2
+        ((error_count += 1))
+    fi
+done
+
+if [[ $error_count -gt 0 ]]; then
+    echo "Shell syntax validation failed with $error_count error(s)." >&2
+    exit 1
+fi
+
+echo "Shell syntax validation passed for ${#script_files[@]} script(s)."

@@ -40,6 +40,8 @@ namespace Kusto.Cli;
 [JsonSerializable(typeof(Dictionary<string, List<string>>))]
 [JsonSerializable(typeof(List<string>))]
 [JsonSerializable(typeof(TabularData))]
+[JsonSerializable(typeof(UpdateState))]
+[JsonSerializable(typeof(PayloadManifest))]
 internal sealed partial class KustoJsonSerializerContext : JsonSerializerContext
 {
 }

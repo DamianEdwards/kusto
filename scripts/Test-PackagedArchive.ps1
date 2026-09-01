@@ -90,10 +90,10 @@ try
                 default { throw "Unsupported Windows architecture in runtime identifier '$RuntimeIdentifier'." }
             }
 
-            @('kusto.exe', 'libSkiaSharp.dll', 'libHarfBuzzSharp.dll', $msalRuntime, 'LICENSE')
+            @('kusto.exe', 'libSkiaSharp.dll', 'libHarfBuzzSharp.dll', $msalRuntime, 'libsodium.dll', 'LICENSE', 'THIRD-PARTY-NOTICES.md', 'payload-manifest.json')
         }
-        'linux' { @('kusto', 'libSkiaSharp.so', 'libHarfBuzzSharp.so', 'LICENSE') }
-        'osx'   { @('kusto', 'libSkiaSharp.dylib', 'libHarfBuzzSharp.dylib', 'LICENSE') }
+        'linux' { @('kusto', 'libSkiaSharp.so', 'libHarfBuzzSharp.so', 'libsodium.so', 'LICENSE', 'THIRD-PARTY-NOTICES.md', 'payload-manifest.json') }
+        'osx'   { @('kusto', 'libSkiaSharp.dylib', 'libHarfBuzzSharp.dylib', 'libsodium.dylib', 'LICENSE', 'THIRD-PARTY-NOTICES.md', 'payload-manifest.json') }
         default { throw "Unsupported platform '$platform'." }
     }
 
@@ -106,6 +106,61 @@ try
     }
 
     Write-Host "Required payload files present: $($requiredNames -join ', ')" -ForegroundColor Green
+
+    $manifestName = 'payload-manifest.json'
+    $manifestPath = Join-Path $expandRoot $manifestName
+    $manifest = Get-Content -Path $manifestPath -Raw | ConvertFrom-Json
+    if ($manifest -isnot [pscustomobject] -or
+        $manifest.PSObject.Properties.Name -notcontains 'files' -or
+        $manifest.files -isnot [array])
+    {
+        throw "'$manifestName' must be a JSON object with a 'files' array."
+    }
+    $declaredFiles = @($manifest.files)
+    if ($declaredFiles.Count -eq 0)
+    {
+        throw "'$manifestName' did not declare any payload files."
+    }
+
+    $normalizedDeclaredFiles = @(
+        $declaredFiles |
+            ForEach-Object {
+                if ($_ -isnot [string] -or [string]::IsNullOrWhiteSpace($_) -or [System.IO.Path]::IsPathRooted($_))
+                {
+                    throw "'$manifestName' contains invalid install-relative path '$_'."
+                }
+                if ($_.Contains('\'))
+                {
+                    throw "'$manifestName' path '$_' is not slash-normalized."
+                }
+                $_
+            }
+    )
+    if (@($normalizedDeclaredFiles | Sort-Object -Unique).Count -ne $normalizedDeclaredFiles.Count)
+    {
+        throw "'$manifestName' contains duplicate paths."
+    }
+    for ($index = 1; $index -lt $normalizedDeclaredFiles.Count; $index++)
+    {
+        if ([System.StringComparer]::Ordinal.Compare(
+                $normalizedDeclaredFiles[$index - 1],
+                $normalizedDeclaredFiles[$index]) -gt 0)
+        {
+            throw "'$manifestName' paths must be sorted using ordinal comparison."
+        }
+    }
+
+    $actualManifestFiles = @(
+        Get-ChildItem -Path $expandRoot -File -Recurse |
+            ForEach-Object { [System.IO.Path]::GetRelativePath($expandRoot, $_.FullName).Replace('\', '/') } |
+            Where-Object { $_ -ne $manifestName }
+    )
+    $manifestDifference = @(Compare-Object $normalizedDeclaredFiles $actualManifestFiles)
+    if ($manifestDifference.Count -gt 0)
+    {
+        $details = $manifestDifference | ForEach-Object { "$($_.SideIndicator) $($_.InputObject)" }
+        throw "'$manifestName' does not exactly describe the archive payload (the manifest itself is intentionally excluded): $($details -join ', ')."
+    }
 
     # Runtime check: invoke the binary from the expanded archive, not from the
     # build output. This proves SkiaSharp/HarfBuzz native libraries actually

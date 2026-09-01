@@ -107,7 +107,10 @@ function Get-RequiredPayloadFileNames
                 'libSkiaSharp.dll',
                 'libHarfBuzzSharp.dll',
                 $msalRuntime,
-                'LICENSE'
+                'libsodium.dll',
+                'LICENSE',
+                'THIRD-PARTY-NOTICES.md',
+                'payload-manifest.json'
             )
         }
         'linux'
@@ -116,7 +119,10 @@ function Get-RequiredPayloadFileNames
                 $BinaryName,
                 'libSkiaSharp.so',
                 'libHarfBuzzSharp.so',
-                'LICENSE'
+                'libsodium.so',
+                'LICENSE',
+                'THIRD-PARTY-NOTICES.md',
+                'payload-manifest.json'
             )
         }
         'osx'
@@ -125,7 +131,10 @@ function Get-RequiredPayloadFileNames
                 $BinaryName,
                 'libSkiaSharp.dylib',
                 'libHarfBuzzSharp.dylib',
-                'LICENSE'
+                'libsodium.dylib',
+                'LICENSE',
+                'THIRD-PARTY-NOTICES.md',
+                'payload-manifest.json'
             )
         }
         default
@@ -168,8 +177,11 @@ function Invoke-DotNetPublish
         if (-not [string]::IsNullOrWhiteSpace($vsDevCmdPath))
         {
             $targetArchitecture = Get-WindowsTargetArchitecture -Rid $Rid
-            $vsInstallerDirectory = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer'
+            $vsWhereDirectory = Split-Path -Parent (Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe')
             $commandSegments = @(
+                'set',
+                (Quote-CmdArgument -Value "PATH=$vsWhereDirectory;%PATH%"),
+                '&&',
                 'call',
                 (Quote-CmdArgument -Value $vsDevCmdPath),
                 '-no_logo',
@@ -179,20 +191,7 @@ function Invoke-DotNetPublish
                 'dotnet'
             ) + ($Arguments | ForEach-Object { Quote-CmdArgument -Value $_ })
 
-            $originalPath = $env:PATH
-            try
-            {
-                if (Test-Path $vsInstallerDirectory)
-                {
-                    $env:PATH = "$vsInstallerDirectory;$originalPath"
-                }
-
-                & cmd.exe /d /c ($commandSegments -join ' ')
-            }
-            finally
-            {
-                $env:PATH = $originalPath
-            }
+            & cmd.exe /d /c ($commandSegments -join ' ')
             return
         }
     }
@@ -274,10 +273,29 @@ try
     Copy-Item (Join-Path $repoRoot 'LICENSE') (Join-Path $stagingDirectory 'LICENSE') -Force
 
     $thirdPartyNoticesPath = Join-Path $repoRoot 'THIRD-PARTY-NOTICES.md'
-    if (Test-Path $thirdPartyNoticesPath)
+    if (-not (Test-Path $thirdPartyNoticesPath))
     {
-        Copy-Item $thirdPartyNoticesPath (Join-Path $stagingDirectory 'THIRD-PARTY-NOTICES.md') -Force
+        throw "Required notices file '$thirdPartyNoticesPath' was not found."
     }
+    Copy-Item $thirdPartyNoticesPath (Join-Path $stagingDirectory 'THIRD-PARTY-NOTICES.md') -Force
+
+    # The manifest intentionally does not list itself. Every other path is
+    # install-relative and uses '/' so all platforms consume the same schema.
+    $manifestFileName = 'payload-manifest.json'
+    [string[]]$manifestFiles = @(
+        Get-ChildItem -Path $stagingDirectory -File -Recurse |
+            ForEach-Object {
+                [System.IO.Path]::GetRelativePath($stagingDirectory, $_.FullName).Replace('\', '/')
+            }
+    )
+    if ($manifestFiles.Count -eq 0)
+    {
+        throw "Cannot generate '$manifestFileName' for an empty staged payload."
+    }
+    [System.Array]::Sort($manifestFiles, [System.StringComparer]::Ordinal)
+    [ordered]@{ files = $manifestFiles } |
+        ConvertTo-Json -Depth 3 |
+        Set-Content -Path (Join-Path $stagingDirectory $manifestFileName) -Encoding utf8
 
     # Assert the staged payload contains every file users need at runtime. If
     # ScottPlot/SkiaSharp ever drops a backend, restructures its native packaging,
@@ -330,6 +348,7 @@ try
         fileType = if ($platform -eq 'win') { 'zip' } else { 'tar.gz' }
         commandName = 'kusto'
         sha256 = $hash
+        sourceCommit = if ([string]::IsNullOrWhiteSpace($env:GITHUB_SHA)) { $null } else { $env:GITHUB_SHA }
     }
 
     $metadataPath = Join-Path $artifactsDirectory ("kusto-$RuntimeIdentifier.json")

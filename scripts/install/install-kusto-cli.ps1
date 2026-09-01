@@ -85,6 +85,107 @@ function Ensure-PathContains
     return $true
 }
 
+function Get-PowerShellCompletionProfilePath
+{
+    if ($PROFILE -is [string])
+    {
+        return $PROFILE
+    }
+
+    if ($PROFILE.PSObject.Properties.Name -contains 'CurrentUserAllHosts' -and -not [string]::IsNullOrWhiteSpace($PROFILE.CurrentUserAllHosts))
+    {
+        return $PROFILE.CurrentUserAllHosts
+    }
+
+    return [string]$PROFILE
+}
+
+function Get-NativeCommandOutput
+{
+    param(
+        [Parameter(Mandatory)][string]$FilePath,
+        [Parameter(Mandatory)][string[]]$ArgumentList
+    )
+
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $FilePath
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    foreach ($argument in $ArgumentList)
+    {
+        $startInfo.ArgumentList.Add($argument)
+    }
+
+    $process = [System.Diagnostics.Process]::Start($startInfo)
+    if ($null -eq $process)
+    {
+        throw "Failed to start '$FilePath'."
+    }
+
+    try
+    {
+        $standardOutput = $process.StandardOutput.ReadToEnd()
+        $standardError = $process.StandardError.ReadToEnd()
+        $process.WaitForExit()
+        if ($process.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($standardOutput))
+        {
+            $message = if ([string]::IsNullOrWhiteSpace($standardError)) { "Command exited with code $($process.ExitCode)." } else { $standardError.Trim() }
+            throw "Failed to generate completion script: $message"
+        }
+        return $standardOutput
+    }
+    finally
+    {
+        $process.Dispose()
+    }
+}
+
+function Try-EnablePowerShellCompletion
+{
+    param([Parameter(Mandatory)][string]$CommandPath)
+
+    $registerCommand = Get-Command Register-ArgumentCompleter -ErrorAction SilentlyContinue
+    if ($null -eq $registerCommand -or -not $registerCommand.Parameters.ContainsKey('Native'))
+    {
+        return [pscustomobject]@{ Status = 'Unavailable'; Message = 'PowerShell native completion is not supported by this shell.' }
+    }
+
+    try
+    {
+        $profilePath = Get-PowerShellCompletionProfilePath
+        $scriptPath = Join-Path (Split-Path -Parent $CommandPath) 'kusto-completions.ps1'
+        $scriptContent = Get-NativeCommandOutput -FilePath $CommandPath -ArgumentList @('completions', 'script', 'pwsh')
+        Set-Content -Path $scriptPath -Value $scriptContent -Encoding utf8
+        $profileUpdated = $false
+        $profileContent = if (Test-Path $profilePath) { Get-Content -Path $profilePath -Raw } else { '' }
+        if (-not $profileContent.Contains($scriptPath))
+        {
+            $profileDirectory = Split-Path -Parent $profilePath
+            if (-not [string]::IsNullOrWhiteSpace($profileDirectory))
+            {
+                New-Item -ItemType Directory -Path $profileDirectory -Force | Out-Null
+            }
+            Add-Content -Path $profilePath -Value ''
+            Add-Content -Path $profilePath -Value '# Added by the kusto installer for shell completion'
+            Add-Content -Path $profilePath -Value ". '$scriptPath'"
+            $profileUpdated = $true
+        }
+
+        return [pscustomobject]@{
+            Status = 'Enabled'
+            ProfilePath = $profilePath
+            ProfileUpdated = $profileUpdated
+            ScriptPath = $scriptPath
+            Message = $null
+        }
+    }
+    catch
+    {
+        return [pscustomobject]@{ Status = 'Failed'; Message = $_.Exception.Message }
+    }
+}
+
 function Get-HttpStatusCode
 {
     param([Parameter(Mandatory)][System.Exception]$Exception)
@@ -222,6 +323,21 @@ function Get-WindowsArchitecture
     }
 }
 
+function Get-CompatibleRelativePath
+{
+    param(
+        [Parameter(Mandatory)][string]$BasePath,
+        [Parameter(Mandatory)][string]$TargetPath
+    )
+
+    $baseFullPath = [System.IO.Path]::GetFullPath($BasePath).TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
+    $targetFullPath = [System.IO.Path]::GetFullPath($TargetPath)
+    $baseUri = [System.Uri]::new($baseFullPath)
+    $targetUri = [System.Uri]::new($targetFullPath)
+    $relativePath = [System.Uri]::UnescapeDataString($baseUri.MakeRelativeUri($targetUri).ToString())
+    return $relativePath.Replace('/', [System.IO.Path]::DirectorySeparatorChar)
+}
+
 function Get-ReleaseForQuality
 {
     param(
@@ -230,30 +346,11 @@ function Get-ReleaseForQuality
         [Parameter(Mandatory)][string]$AssetName
     )
 
-    if ($SelectedQuality -eq 'Dev')
-    {
-        $devRelease = Get-ReleaseByTag -Repo $Repo -Tag 'dev'
-        if ($null -eq $devRelease)
-        {
-            $releases = @(Invoke-GitHubApi -Uri "https://api.github.com/repos/$Repo/releases?per_page=100" | ForEach-Object { $_ })
-            $devRelease = $releases | Where-Object { $_.name -eq 'Development Build' } | Select-Object -First 1
-        }
-
-        if ($null -eq $devRelease)
-        {
-            throw "Could not locate the standing Development Build release (tag 'dev' or title 'Development Build')."
-        }
-
-        $devAsset = Get-ReleaseAsset -Release $devRelease -AssetName $AssetName
-        if ($null -eq $devAsset)
-        {
-            throw "Development Build release '$($devRelease.name)' does not contain asset '$AssetName'."
-        }
-
-        return $devRelease
-    }
-
     $allReleases = @(Invoke-GitHubApi -Uri "https://api.github.com/repos/$Repo/releases?per_page=100" | ForEach-Object { $_ })
+    $bestRelease = $null
+    $bestVersion = $null
+    $legacyDevRelease = $null
+
     foreach ($release in $allReleases)
     {
         if ($release.draft)
@@ -261,12 +358,16 @@ function Get-ReleaseForQuality
             continue
         }
 
-        if ($release.tag_name -in @('dev', 'install-scripts'))
+        if ($release.tag_name -eq 'dev')
         {
+            if ($SelectedQuality -eq 'Dev' -and $null -ne (Get-ReleaseAsset -Release $release -AssetName $AssetName))
+            {
+                $legacyDevRelease = $release
+            }
             continue
         }
 
-        if ($SelectedQuality -eq 'Stable' -and $release.prerelease)
+        if ($release.tag_name -eq 'install-scripts' -or $release.tag_name -like 'install-scripts-v*')
         {
             continue
         }
@@ -277,7 +378,46 @@ function Get-ReleaseForQuality
             continue
         }
 
-        return $release
+        $isDevRelease = $release.tag_name -match '(^v?.*-dev\.)|(\.dev\.)'
+        $matchesQuality = switch ($SelectedQuality)
+        {
+            'Dev' { $release.prerelease -and $isDevRelease }
+            'PreRelease' { -not $isDevRelease }
+            'Stable' { -not $release.prerelease }
+            default { $false }
+        }
+        if (-not $matchesQuality)
+        {
+            continue
+        }
+
+        $candidateVersion = $release.tag_name.TrimStart('v')
+        try
+        {
+            $null = Parse-SemanticVersion -Value $candidateVersion
+        }
+        catch
+        {
+            Write-Verbose "Skipping release '$($release.tag_name)' because its tag is not SemVer."
+            continue
+        }
+
+        if ($null -eq $bestRelease -or (Compare-SemanticVersion -Left $candidateVersion -Right $bestVersion) -gt 0)
+        {
+            $bestRelease = $release
+            $bestVersion = $candidateVersion
+        }
+    }
+
+    if ($null -ne $bestRelease)
+    {
+        return $bestRelease
+    }
+
+    if ($SelectedQuality -eq 'Dev' -and $null -ne $legacyDevRelease)
+    {
+        Write-Verbose "No immutable SemVer development release was found; using the legacy standing 'dev' release."
+        return $legacyDevRelease
     }
 
     throw "No '$SelectedQuality' release containing '$AssetName' was found in '$Repo'."
@@ -320,16 +460,20 @@ function Get-KustoInstallerTrustConfiguration
         ExpectedExecutablePayloadFiles = @(
             'kusto.exe',
             'libSkiaSharp.dll',
-            'libHarfBuzzSharp.dll'
+            'libHarfBuzzSharp.dll',
+            'libsodium.dll'
         )
         # Non-executable payload files that should be carried alongside the binaries.
         # These don't need signing but the installer should still keep them in sync.
         ExpectedAuxiliaryPayloadFiles = @(
             'LICENSE',
-            'THIRD-PARTY-NOTICES.md'
+            'THIRD-PARTY-NOTICES.md',
+            'payload-manifest.json'
         )
     }
 }
+
+#region SharedProvenanceFunctions
 
 function Get-CertificateSha512Thumbprint
 {
@@ -496,6 +640,142 @@ function Assert-ExtractedPayloadComplete
     }
 }
 
+function Assert-PayloadManifestMatches
+{
+    param([Parameter(Mandatory)][string]$ExtractDirectory)
+
+    $manifestName = 'payload-manifest.json'
+    $manifestPath = Join-Path $ExtractDirectory $manifestName
+    if (-not (Test-Path -LiteralPath $manifestPath))
+    {
+        throw "Extracted archive is missing required '$manifestName'."
+    }
+
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    if ($manifest -isnot [pscustomobject] -or
+        $manifest.PSObject.Properties.Name -notcontains 'files' -or
+        $manifest.files -isnot [array])
+    {
+        throw "'$manifestName' must be a JSON object with a 'files' array."
+    }
+    $entries = @($manifest.files)
+    if ($entries.Count -eq 0)
+    {
+        throw "'$manifestName' did not declare any payload files."
+    }
+
+    $root = [System.IO.Path]::GetFullPath($ExtractDirectory).TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
+    $declared = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $previousEntry = $null
+    foreach ($entry in $entries)
+    {
+        if ($entry -isnot [string] -or [string]::IsNullOrWhiteSpace($entry) -or [System.IO.Path]::IsPathRooted($entry))
+        {
+            throw "'$manifestName' contains invalid install-relative path '$entry'."
+        }
+        if ($entry.Contains('\'))
+        {
+            throw "'$manifestName' path '$entry' is not slash-normalized."
+        }
+        if ($null -ne $previousEntry -and [System.StringComparer]::Ordinal.Compare($previousEntry, $entry) -gt 0)
+        {
+            throw "'$manifestName' paths must be sorted using ordinal comparison."
+        }
+        $previousEntry = $entry
+
+        $normalized = $entry.Replace('/', [System.IO.Path]::DirectorySeparatorChar).Replace('\', [System.IO.Path]::DirectorySeparatorChar)
+        $fullPath = [System.IO.Path]::GetFullPath((Join-Path $ExtractDirectory $normalized))
+        if (-not $fullPath.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase))
+        {
+            throw "'$manifestName' contains path outside the payload: '$entry'."
+        }
+
+        $relativePath = Get-CompatibleRelativePath -BasePath $ExtractDirectory -TargetPath $fullPath
+        if ($entry -cne $relativePath.Replace('\', '/'))
+        {
+            throw "'$manifestName' path '$entry' is not normalized."
+        }
+        if (-not $declared.Add($relativePath))
+        {
+            throw "'$manifestName' contains duplicate path '$entry'."
+        }
+        if (-not (Test-Path -LiteralPath $fullPath -PathType Leaf))
+        {
+            throw "Extracted archive is missing file '$entry' declared by '$manifestName'."
+        }
+    }
+
+    $actual = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    Get-ChildItem -Path $ExtractDirectory -File -Recurse |
+        ForEach-Object {
+            $relativePath = Get-CompatibleRelativePath -BasePath $ExtractDirectory -TargetPath $_.FullName
+            if ($relativePath -ne $manifestName)
+            {
+                $null = $actual.Add($relativePath)
+            }
+        }
+    if (-not $declared.SetEquals($actual))
+    {
+        throw "'$manifestName' does not exactly describe the extracted payload; the manifest itself must be excluded."
+    }
+
+    return @($declared | Sort-Object)
+}
+
+function Get-InstalledManifestPayloadFiles
+{
+    param([Parameter(Mandatory)][string]$InstallDirectory)
+
+    $manifestPath = Join-Path $InstallDirectory 'payload-manifest.json'
+    if (-not (Test-Path -LiteralPath $manifestPath))
+    {
+        return @()
+    }
+
+    try
+    {
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+        if ($manifest -isnot [pscustomobject] -or
+            $manifest.PSObject.Properties.Name -notcontains 'files' -or
+            $manifest.files -isnot [array])
+        {
+            throw 'Installed payload manifest must be a JSON object with a files array.'
+        }
+        $entries = @($manifest.files)
+        $root = [System.IO.Path]::GetFullPath($InstallDirectory).TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
+        $validated = @(
+            foreach ($entry in $entries)
+            {
+                if ($entry -isnot [string] -or
+                    [string]::IsNullOrWhiteSpace($entry) -or
+                    [System.IO.Path]::IsPathRooted($entry) -or
+                    $entry.Contains('\'))
+                {
+                    throw "Installed payload manifest contains an invalid path."
+                }
+                $normalized = $entry.Replace('/', [System.IO.Path]::DirectorySeparatorChar).Replace('\', [System.IO.Path]::DirectorySeparatorChar)
+                $fullPath = [System.IO.Path]::GetFullPath((Join-Path $InstallDirectory $normalized))
+                if (-not $fullPath.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase))
+                {
+                    throw "Installed payload manifest contains a path outside the installation."
+                }
+                $relativePath = Get-CompatibleRelativePath -BasePath $InstallDirectory -TargetPath $fullPath
+                if ($entry -cne $relativePath.Replace('\', '/'))
+                {
+                    throw 'Installed payload manifest contains a non-normalized path.'
+                }
+                $relativePath
+            }
+        )
+        return $validated
+    }
+    catch
+    {
+        Write-Verbose "Ignoring an invalid installed payload manifest during stale-file cleanup. $($_.Exception.Message)"
+        return @()
+    }
+}
+
 function Install-KustoPayload
 {
     param(
@@ -504,15 +784,14 @@ function Install-KustoPayload
         [string[]]$KnownPayloadFileNames = @()
     )
 
-    # Strategy: stage the new payload to a sibling ".new" directory, then atomically
-    # replace the install dir by renaming the existing dir aside, renaming the new
-    # one in, and deleting the side-aside dir. If anything in the rename dance fails
-    # (e.g. another process holds a file open), fall back to overlay-copy + cleanup
-    # of stale managed files so the upgrade still completes.
-
     $installRoot = [System.IO.Path]::GetFullPath($InstallDirectory)
     $stagingDir = $installRoot + '.new'
     $previousDir = $installRoot + '.old'
+    $managedPayloadFileNames = @(
+        $KnownPayloadFileNames
+        Get-InstalledManifestPayloadFiles -InstallDirectory $installRoot
+        'payload-manifest.json'
+    ) | Sort-Object -Unique
 
     if (Test-Path $stagingDir)
     {
@@ -527,92 +806,60 @@ function Install-KustoPayload
     New-Item -ItemType Directory -Path $stagingDir -Force | Out-Null
     Copy-Item -Path (Join-Path $SourceDirectory '*') -Destination $stagingDir -Recurse -Force
 
-    $atomicSwapCompleted = $false
-    if (Test-Path $installRoot)
+    New-Item -ItemType Directory -Path $installRoot, $previousDir -Force | Out-Null
+    $mutationStarted = $false
+    try
     {
-        try
+        foreach ($relativePath in $managedPayloadFileNames)
         {
-            Rename-Item -Path $installRoot -NewName ([System.IO.Path]::GetFileName($previousDir)) -ErrorAction Stop
-            try
+            $installedPath = Join-Path $installRoot $relativePath
+            if (-not (Test-Path -LiteralPath $installedPath -PathType Leaf))
             {
-                Rename-Item -Path $stagingDir -NewName ([System.IO.Path]::GetFileName($installRoot)) -ErrorAction Stop
-                $atomicSwapCompleted = $true
+                continue
             }
-            catch
-            {
-                # Couldn't rename staging in. Restore the previous dir.
-                Write-Verbose "Atomic install swap failed renaming staging into place; restoring previous install. $($_.Exception.Message)"
-                if (-not (Test-Path $installRoot))
-                {
-                    Rename-Item -Path $previousDir -NewName ([System.IO.Path]::GetFileName($installRoot)) -ErrorAction SilentlyContinue
-                }
-                throw
-            }
-        }
-        catch [System.IO.IOException]
-        {
-            Write-Verbose "Atomic install swap unavailable (likely a file is in use). Falling back to overlay copy. $($_.Exception.Message)"
-        }
-    }
-    else
-    {
-        Rename-Item -Path $stagingDir -NewName ([System.IO.Path]::GetFileName($installRoot)) -ErrorAction Stop
-        $atomicSwapCompleted = $true
-    }
 
-    if ($atomicSwapCompleted)
-    {
-        if (Test-Path $previousDir)
-        {
-            try
-            {
-                Remove-Item $previousDir -Recurse -Force
-            }
-            catch
-            {
-                Write-Verbose "Could not delete previous install at '$previousDir' after swap. $($_.Exception.Message)"
-            }
+            $backupPath = Join-Path $previousDir $relativePath
+            New-Item -ItemType Directory -Path (Split-Path -Parent $backupPath) -Force | Out-Null
+            Copy-Item -LiteralPath $installedPath -Destination $backupPath -Force
         }
 
-        if (Test-Path $stagingDir)
+        $mutationStarted = $true
+        foreach ($relativePath in $managedPayloadFileNames)
         {
-            Remove-Item $stagingDir -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath (Join-Path $installRoot $relativePath) -Force -ErrorAction SilentlyContinue
         }
 
-        return
-    }
-
-    # Fallback overlay path. First, remove stale known-managed files so previously
-    # installed sidecars that the new release dropped don't linger and shadow the
-    # ones bundled with .NET host probing.
-    if (Test-Path $installRoot)
-    {
-        foreach ($knownName in $KnownPayloadFileNames)
+        foreach ($stagedFile in Get-ChildItem -Path $stagingDir -File -Recurse)
         {
-            $stalePath = Join-Path $installRoot $knownName
-            if (Test-Path $stalePath)
+            $relativePath = Get-CompatibleRelativePath -BasePath $stagingDir -TargetPath $stagedFile.FullName
+            $destinationPath = Join-Path $installRoot $relativePath
+            New-Item -ItemType Directory -Path (Split-Path -Parent $destinationPath) -Force | Out-Null
+            Copy-Item -LiteralPath $stagedFile.FullName -Destination $destinationPath -Force
+        }
+    }
+    catch
+    {
+        if ($mutationStarted)
+        {
+            foreach ($relativePath in $managedPayloadFileNames)
             {
-                try
-                {
-                    Remove-Item $stalePath -Force
-                }
-                catch
-                {
-                    Write-Verbose "Could not delete stale managed file '$stalePath' before overlay copy. $($_.Exception.Message)"
-                }
+                Remove-Item -LiteralPath (Join-Path $installRoot $relativePath) -Force -ErrorAction SilentlyContinue
+            }
+
+            foreach ($backupFile in Get-ChildItem -Path $previousDir -File -Recurse)
+            {
+                $relativePath = Get-CompatibleRelativePath -BasePath $previousDir -TargetPath $backupFile.FullName
+                $destinationPath = Join-Path $installRoot $relativePath
+                New-Item -ItemType Directory -Path (Split-Path -Parent $destinationPath) -Force | Out-Null
+                Copy-Item -LiteralPath $backupFile.FullName -Destination $destinationPath -Force
             }
         }
-    }
-    else
-    {
-        New-Item -ItemType Directory -Path $installRoot -Force | Out-Null
-    }
 
-    Copy-Item -Path (Join-Path $stagingDir '*') -Destination $installRoot -Recurse -Force
-
-    if (Test-Path $stagingDir)
+        throw
+    }
+    finally
     {
-        Remove-Item $stagingDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item $stagingDir, $previousDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -993,6 +1240,8 @@ function Assert-WindowsBinaryTrust
     return $evidence
 }
 
+#endregion SharedProvenanceFunctions
+
 function Get-KustoVersionString
 {
     param([Parameter(Mandatory)][string]$BinaryPath)
@@ -1177,7 +1426,7 @@ function Invoke-KustoCliInstall
 
     if ($Quality -eq 'Dev' -and -not $Force)
     {
-        $confirmation = Read-Host "Dev quality disables checksum/signature verification. Type YES to continue"
+        $confirmation = Read-Host "Dev quality skips Authenticode provenance verification but still enforces checksums. Type YES to continue"
         if ($confirmation -cne 'YES')
         {
             throw 'Installation canceled by user.'
@@ -1200,32 +1449,29 @@ function Invoke-KustoCliInstall
             Invoke-GitHubAssetDownload -Uri $assetDownloadUri -OutFile $downloadPath
         }
 
-        if ($Quality -ne 'Dev')
+        $checksumsAsset = Get-ReleaseAsset -Release $release -AssetName 'checksums.txt'
+        if ($null -eq $checksumsAsset)
         {
-            $checksumsAsset = Get-ReleaseAsset -Release $release -AssetName 'checksums.txt'
-            if ($null -eq $checksumsAsset)
-            {
-                throw "Release '$($release.name)' did not include checksums.txt."
-            }
+            throw "Release '$($release.name)' did not include checksums.txt."
+        }
 
-            $checksumsPath = Join-Path $tempRoot 'checksums.txt'
-            $checksumsDownloadUri = Get-ReleaseAssetDownloadUri -Asset $checksumsAsset
-            Write-Verbose "Downloading checksums from '$checksumsDownloadUri' to '$checksumsPath'."
-            Invoke-GitHubAssetDownload -Uri $checksumsDownloadUri -OutFile $checksumsPath
+        $checksumsPath = Join-Path $tempRoot 'checksums.txt'
+        $checksumsDownloadUri = Get-ReleaseAssetDownloadUri -Asset $checksumsAsset
+        Write-Verbose "Downloading checksums from '$checksumsDownloadUri' to '$checksumsPath'."
+        Invoke-GitHubAssetDownload -Uri $checksumsDownloadUri -OutFile $checksumsPath
 
-            $releaseMetadataPath = $null
-            $releaseMetadataAsset = Get-ReleaseAsset -Release $release -AssetName 'release-metadata.json'
-            if ($null -ne $releaseMetadataAsset)
-            {
-                $releaseMetadataPath = Join-Path $tempRoot 'release-metadata.json'
-                $releaseMetadataDownloadUri = Get-ReleaseAssetDownloadUri -Asset $releaseMetadataAsset
-                Write-Verbose "Downloading release metadata from '$releaseMetadataDownloadUri' to '$releaseMetadataPath'."
-                Invoke-GitHubAssetDownload -Uri $releaseMetadataDownloadUri -OutFile $releaseMetadataPath
-            }
+        $releaseMetadataPath = $null
+        $releaseMetadataAsset = Get-ReleaseAsset -Release $release -AssetName 'release-metadata.json'
+        if ($null -ne $releaseMetadataAsset)
+        {
+            $releaseMetadataPath = Join-Path $tempRoot 'release-metadata.json'
+            $releaseMetadataDownloadUri = Get-ReleaseAssetDownloadUri -Asset $releaseMetadataAsset
+            Write-Verbose "Downloading release metadata from '$releaseMetadataDownloadUri' to '$releaseMetadataPath'."
+            Invoke-GitHubAssetDownload -Uri $releaseMetadataDownloadUri -OutFile $releaseMetadataPath
+        }
 
-            Invoke-StatusStep -Message 'Verifying asset checksums' -Action {
-                $null = Assert-WindowsArchiveIntegrity -ArchivePath $downloadPath -AssetName $assetName -ChecksumsPath $checksumsPath -ReleaseMetadataPath $releaseMetadataPath
-            }
+        Invoke-StatusStep -Message 'Verifying asset checksums' -Action {
+            $null = Assert-WindowsArchiveIntegrity -ArchivePath $downloadPath -AssetName $assetName -ChecksumsPath $checksumsPath -ReleaseMetadataPath $releaseMetadataPath
         }
 
         $extractedPayload = Expand-WindowsReleaseArchive -ArchivePath $downloadPath -DestinationPath $extractPath
@@ -1237,7 +1483,14 @@ function Invoke-KustoCliInstall
         $expectedAuxiliaryPayload = @($trustConfig.ExpectedAuxiliaryPayloadFiles)
         $allExpectedPayload = @($expectedExecutablePayload + $expectedAuxiliaryPayload)
 
-        Assert-ExtractedPayloadComplete -ExtractDirectory $extractDirectory -RequiredFileNames $expectedExecutablePayload
+        Assert-ExtractedPayloadComplete -ExtractDirectory $extractDirectory -RequiredFileNames $allExpectedPayload
+        $manifestPayloadFiles = @(Assert-PayloadManifestMatches -ExtractDirectory $extractDirectory)
+        $allowedPayloadFiles = @($allExpectedPayload | Where-Object { $_ -ne 'payload-manifest.json' })
+        $unexpectedPayloadFiles = @($manifestPayloadFiles | Where-Object { $_ -notin $allowedPayloadFiles })
+        if ($unexpectedPayloadFiles.Count -gt 0)
+        {
+            throw "Downloaded archive contains unsupported payload file(s): $($unexpectedPayloadFiles -join ', ')."
+        }
 
         if ($Quality -ne 'Dev')
         {
@@ -1254,7 +1507,16 @@ function Invoke-KustoCliInstall
         }
         else
         {
-            Write-Host 'Skipping checksum and provenance verification for development build.'
+            Write-Host 'Checksums verified. Skipping Authenticode provenance verification for the unsigned development build.'
+        }
+
+        Invoke-StatusStep -Message 'Validating packaged runtime' -Action {
+            $smokePath = Join-Path $tempRoot 'chart-self-test.png'
+            & $downloadedBinaryPath '_diag' 'chart-self-test' '--output' $smokePath | Out-Null
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $smokePath))
+            {
+                throw 'The downloaded Kusto CLI failed its packaged chart check.'
+            }
         }
 
         $installDirectory = [System.IO.Path]::GetFullPath($TargetPath)
@@ -1286,7 +1548,7 @@ function Invoke-KustoCliInstall
                 Install-KustoPayload `
                     -SourceDirectory $extractDirectory `
                     -InstallDirectory $installDirectory `
-                    -KnownPayloadFileNames $allExpectedPayload
+                    -KnownPayloadFileNames @($allExpectedPayload + $manifestPayloadFiles)
             }
         }
 
@@ -1316,6 +1578,24 @@ function Invoke-KustoCliInstall
         else
         {
             Write-Host "Skipped PATH updates because -UpdatePath was set to false."
+        }
+
+        $completionResult = Try-EnablePowerShellCompletion -CommandPath $destinationPath
+        switch ($completionResult.Status)
+        {
+            'Enabled'
+            {
+                if ($completionResult.ProfileUpdated)
+                {
+                    Write-Host "Enabled PowerShell tab completion in '$($completionResult.ProfilePath)'. Restart PowerShell to load it."
+                }
+                else
+                {
+                    Write-Host "Updated PowerShell tab completion script at '$($completionResult.ScriptPath)'."
+                }
+            }
+            'Unavailable' { Write-Host $completionResult.Message }
+            'Failed' { Write-Warning "kusto was installed, but PowerShell tab completion could not be enabled automatically: $($completionResult.Message)" }
         }
 
         Write-Host "kusto $installedVersion is ready to use from '$installDirectory'." -ForegroundColor Green

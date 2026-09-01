@@ -1,0 +1,3 @@
+*.ps1 -text
+*.ps1 whitespace=cr-at-eol
+*.sh text eol=lf
