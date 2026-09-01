@@ -26,8 +26,26 @@
     <PackageReference Include="Microsoft.Azure.Kusto.Language" Version="12.3.2" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.3" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.3" />
+    <PackageReference Include="NuGet.Versioning" Version="7.3.1" />
     <PackageReference Include="ScottPlot" Version="5.1.58" />
+    <PackageReference Include="Sigstore" Version="0.5.0" />
     <PackageReference Include="System.CommandLine" Version="2.0.3" />
   </ItemGroup>
+
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <VerifyProvenanceGeneratorPath>$(MSBuildProjectDirectory)\..\..\scripts\Generate-VerifyProvenance.ps1</VerifyProvenanceGeneratorPath>
+    <VerifyProvenanceSourcePath>$(MSBuildProjectDirectory)\..\..\scripts\install\install-kusto-cli.ps1</VerifyProvenanceSourcePath>
+  </PropertyGroup>
+
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <EmbeddedResource Include="$(IntermediateOutputPath)verify-provenance.ps1" LogicalName="verify-provenance.ps1" />
+  </ItemGroup>
+
+  <Target Name="GenerateVerifyProvenance" BeforeTargets="PrepareForBuild" Condition="$([MSBuild]::IsOSPlatform('Windows'))"
+    Inputs="$(VerifyProvenanceGeneratorPath);$(VerifyProvenanceSourcePath)"
+    Outputs="$(IntermediateOutputPath)verify-provenance.ps1">
+    <MakeDir Directories="$(IntermediateOutputPath)" />
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(VerifyProvenanceGeneratorPath)&quot; -OutputPath &quot;$(IntermediateOutputPath)verify-provenance.ps1&quot;" />
+  </Target>
 
 </Project>

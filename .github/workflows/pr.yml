@@ -3,31 +3,32 @@ name: PR
 on:
   pull_request:
 
+concurrency:
+  group: pr-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   DOTNET_NOLOGO: true
   DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
 
 jobs:
-  validate-powershell-scripts:
+  validate-scripts:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-
-      - name: Validate PowerShell script syntax
-        shell: pwsh
-        run: ./scripts/Verify-PowerShellSyntax.ps1
+        with:
+          fetch-depth: 0
+      - name: Validate scripts
+        uses: ./.github/actions/validate-scripts
 
   build:
-    needs: [validate-powershell-scripts]
+    needs: [validate-scripts]
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-
       - name: Build
         uses: ./.github/actions/build
         with:
@@ -35,42 +36,29 @@ jobs:
           aot-runtime-identifier: linux-x64
 
   test:
-    needs: [validate-powershell-scripts]
+    needs: [validate-scripts]
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-
     runs-on: ${{ matrix.os }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7
-        with:
-          dotnet-version: '10.0.x'
-
-      - name: Restore
-        run: dotnet restore kusto.slnx --nologo --tl:off
-
       - name: Build
-        run: dotnet build kusto.slnx --configuration Release --no-restore --nologo --tl:off -p:ContinuousIntegrationBuild=true
-
+        uses: ./.github/actions/build
       - name: Test
         run: dotnet test kusto.slnx --configuration Release --no-build --nologo --tl:off --logger "trx;LogFileName=test-results-${{ matrix.os }}.trx" --logger "html;LogFileName=test-results-${{ matrix.os }}.html" --results-directory ./test-results
-
       - name: Upload test results
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         with:
           name: test-results-${{ matrix.os }}
           path: |
             ./test-results/*.trx
             ./test-results/*.html
           retention-days: 30
-  
+
   publish-aot:
     needs: [build]
     strategy:
@@ -79,17 +67,14 @@ jobs:
         include:
           - runner: windows-latest
             rid: win-x64
-          - runner: ubuntu-22.04
-            rid: linux-x64
+          - runner: ubuntu-22.04-arm
+            rid: linux-arm64
           - runner: macos-latest
             rid: osx-arm64
-
     runs-on: ${{ matrix.runner }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-
       - name: Build and validate NativeAOT publish
         uses: ./.github/actions/build
         with:

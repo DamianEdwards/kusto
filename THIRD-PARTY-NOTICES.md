@@ -13,7 +13,9 @@ distribution.
 
 | Package | Version | License | Source |
 |---|---|---|---|
+| `NuGet.Versioning` | 7.3.x | MIT | https://github.com/NuGet/NuGet.Client |
 | `ScottPlot` | 5.1.x | MIT | https://github.com/ScottPlot/ScottPlot |
+| `Sigstore` | 0.5.x | Apache-2.0 | https://github.com/sigstore/sigstore-dotnet |
 
 ## Transitive native rendering stack
 
@@ -39,11 +41,21 @@ archives (e.g. `libSkiaSharp.dll`, `libHarfBuzzSharp.dll`, and their `.so` /
 `HarfBuzzSharp.NativeAssets.*` packages and are covered by the MIT licenses
 above.
 
+## Transitive update-verification stack
+
+| Package | Version | License | Source |
+|---|---|---|---|
+| `Tuf` | 0.5.x | Apache-2.0 | https://github.com/sigstore/sigstore-dotnet |
+| `NSec.Cryptography` | 25.x | MIT | https://github.com/ektrah/nsec |
+| `libsodium` | 1.0.20.x | ISC | https://github.com/jedisct1/libsodium |
+
+The `libsodium.dll`, `libsodium.so`, and `libsodium.dylib` native sidecars are
+included for local Sigstore verification and are covered by the ISC license.
+
 ## License summary
 
-All bundled third-party packages above are distributed under the MIT license.
-The MIT license is reproduced below for convenience and is the same canonical
-text used by every package above:
+The bundled dependencies above use MIT, Apache-2.0, or ISC licenses. The MIT
+license is reproduced below for convenience:
 
 ```
 MIT License

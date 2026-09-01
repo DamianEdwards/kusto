@@ -179,4 +179,17 @@ public sealed class ParserTests
         var result = rootCommand.Parse(["aliases"], new ParserConfiguration());
         Assert.Empty(result.Errors);
     }
+
+    [Theory]
+    [InlineData("update", "--check")]
+    [InlineData("update", "--pre-release", "--dry-run")]
+    [InlineData("update", "--stable-only")]
+    [InlineData("completions", "script", "pwsh")]
+    [InlineData("config", "--set", "include_prerelease_updates=true")]
+    public void Parse_MaintenanceCommands_AreAccepted(params string[] arguments)
+    {
+        var rootCommand = CommandFactory.CreateRootCommand();
+        var result = rootCommand.Parse(arguments, new ParserConfiguration());
+        Assert.Empty(result.Errors);
+    }
 }

@@ -24,6 +24,9 @@ public static class CommandFactory
         {
             formatOption,
             logLevelOption,
+            MaintenanceCommands.CreateCompletionsCommand(),
+            MaintenanceCommands.CreateConfigCommand(formatOption, logLevelOption),
+            MaintenanceCommands.CreateUpdateCommand(logLevelOption),
             BuildExamplesCommand(formatOption, logLevelOption),
             BuildClusterCommand(formatOption, logLevelOption),
             BuildDatabaseCommand(formatOption, logLevelOption),
@@ -1160,5 +1163,4 @@ public static class CommandFactory
         }
     }
 }
-
 

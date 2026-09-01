@@ -74,11 +74,12 @@ $formattedExpectedParentThumbprints = ($expectedParentThumbprints | ForEach-Obje
 
 foreach ($binary in $binariesToVerify)
 {
-    $evidence = Get-WindowsBinaryTrustEvidence -BinaryPath $binary
-    $issuerTrustMatch = Assert-SignerIssuerTrust `
-        -Evidence $evidence `
-        -ExpectedIssuerThumbprints $expectedThumbprints `
-        -ExpectedParentIssuerThumbprints $expectedParentThumbprints
+    $evidence = Assert-WindowsBinaryTrust `
+        -BinaryPath $binary `
+        -ExpectedSubject $config.ExpectedSignerSubject `
+        -ExpectedIssuerSha512Thumbprints $expectedThumbprints `
+        -ExpectedParentIssuerSha512Thumbprints $expectedParentThumbprints
+    $issuerTrustMatch = $evidence.SignerIssuerTrustMatch
 
     $matchDescription = if ($issuerTrustMatch.UsedFallback)
     {

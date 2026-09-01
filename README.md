@@ -12,7 +12,11 @@ irm https://kusto.damianedwards.dev/install.ps1 | iex
 
 ## Install on macOS or Linux
 
-Grab the relevant executable asset from the latest [release](https://github.com/DamianEdwards/kusto-cli/releases).
+In a terminal:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/DamianEdwards/kusto-cli/install-scripts/install.sh | bash
+```
 
 ## What this CLI supports
 
@@ -29,11 +33,13 @@ Grab the relevant executable asset from the latest [release](https://github.com/
 - Multiple output formats (`human`, `json`, `markdown`/`md`, plus query-only `csv`)
 - Optional offline table data with TTL-based schema revalidation, per-table notes, and import/export support
 - Configurable log verbosity with structured console/file logging
+- Signed and attested installers plus checksum/provenance-verifying self-update
+- Generated completion scripts for bash, zsh, fish, and PowerShell
 - GitHub Actions workflows for PR validation, versioned native release assets, and release promotion
 
 ## Authentication
 
-The CLI uses `DefaultAzureCredential`.  
+The CLI uses `DefaultAzureCredential`.
 If your current credential chain cannot authenticate to Kusto, sign in with Azure CLI:
 
 ```powershell
@@ -258,6 +264,9 @@ These options are available on all commands:
 | Command | Purpose | Arguments | Options |
 |---|---|---|---|
 | `examples` | Show usage examples, aliases, and quick-start commands. | none | global options |
+| `update` | Check for and install a verified CLI update. | none | `--check`, `--pre-release`, `--stable-only`, `--dry-run`, `--skip-provenance-checks` |
+| `completions script [<shell>]` | Generate completion for bash, zsh, fish, or PowerShell. | optional shell | `--command-name` |
+| `config` | Show configuration or set the prerelease update preference. | none | `--set include_prerelease_updates=true\|false`, global options |
 | `cluster list` | List configured clusters and defaults. | none | global options |
 | `cluster show <cluster>` | Show details for one known cluster. | `cluster` (name or URL) | global options |
 | `cluster add <name> <url>` | Add a cluster to local config. | `name`, `url` | `--use`, global options |
@@ -470,11 +479,9 @@ Human and markdown output show a short `Open in Web Explorer` link when availabl
 kusto query "StormEvents | take 1" --cluster https://help.kusto.windows.net --database Samples --log-level Information
 ```
 
-## Installer script
+## Installer scripts
 
-The repository publishes a signed Windows installer script at a stable release URL: `https://kusto.damianedwards.dev/install.ps1`
-
-An installer bash script for macOS and Linux is coming soon. In the meantime you can download macOS and Linux native executables from the [releases page](https://github.com/DamianEdwards/kusto-cli/releases).
+The repository publishes signed/attested installer snapshots from the protected `install-scripts` branch. The signed Windows script is also available at `https://kusto.damianedwards.dev/install.ps1`.
 
 Example usage:
 
@@ -492,17 +499,50 @@ irm https://kusto.damianedwards.dev/install.ps1 | iex
 & ([scriptblock]::Create((irm 'https://kusto.damianedwards.dev/install.ps1'))) -TargetPath 'C:\tools\kusto\bin' -UpdatePath:$false
 ```
 
+```bash
+# Stable (default)
+curl -fsSL https://raw.githubusercontent.com/DamianEdwards/kusto-cli/install-scripts/install.sh | bash
+
+# Include official prereleases
+curl -fsSL https://raw.githubusercontent.com/DamianEdwards/kusto-cli/install-scripts/install.sh |
+  bash -s -- --quality PreRelease
+
+# Install to a custom location without modifying a shell profile
+curl -fsSL https://raw.githubusercontent.com/DamianEdwards/kusto-cli/install-scripts/install.sh |
+  bash -s -- --target-path "$HOME/bin" --no-update-path
+```
+
 Installer behavior:
 
-- Script path in this repo: `scripts/install/install-kusto-cli.ps1`
+- Script paths in this repo: `scripts/install/install-kusto-cli.ps1` and `scripts/install/install-kusto-cli.sh`
 - Supports `-Quality Dev|PreRelease|Stable` (default: `Stable`)
-- Supports `-TargetPath` (default: `%USERPROFILE%\.kusto\bin`)
+- Supports a target path (default: `%USERPROFILE%\.kusto\bin` or `~/.kusto/bin`)
 - Supports `-UpdatePath` (default: `true`)
 - Prints concise progress messages by default during download, verification, and install
 - Supports `-Verbose` for opt-in download and provenance diagnostics
-- Replaces existing `kusto.exe` only when the downloaded version is newer
-- Updates current-session and user PATH to include the target directory when `-UpdatePath` is `true`
-- On non-Windows PowerShell, exits with a clear "not yet supported" message
+- Selects the highest matching semantic version instead of relying on GitHub API order
+- Treats `Stable` as strictly stable; prereleases require explicit opt-in
+- Always verifies archive SHA256 and release metadata, including development builds
+- Requires Authenticode trust for `kusto.exe` and every native executable sidecar in official Windows releases
+- Requires tag-bound GitHub artifact attestations for official macOS/Linux archives
+- Installs the complete payload transactionally and updates PATH plus shell completion setup
+
+## Self-update and completions
+
+```powershell
+kusto update --check
+kusto update
+kusto update --pre-release
+kusto update --stable-only
+kusto update --dry-run
+
+kusto config --set include_prerelease_updates=true
+kusto completions script pwsh
+```
+
+Stable installations consider stable updates by default. Official prerelease installations can advance to newer official prereleases or RTM, and development builds can advance to any newer channel. Set `KUSTO_DISABLE_SELF_UPDATES=1` to disable update checks. `KUSTO_UPDATE_REPOSITORY` overrides the GitHub repository; `KUSTO_UPDATE_SOURCE` points to a local release bundle for testing. A local Unix source requires explicit `--skip-provenance-checks`, but checksum and metadata verification still run.
+
+Updates validate the complete extracted payload before installation. Windows replacement runs in a detached helper after the active process exits; Unix replacement runs as a transactional file swap. Both retain a backup until the new binary passes the packaged `_diag chart-self-test` startup check, then remove it. Failed swaps restore the prior payload.
 
 ### Manually verify Windows provenance checks
 
@@ -524,14 +564,14 @@ To create an unsigned local Windows bundle that exercises the checksum, metadata
 Remove-Item .\artifacts\local-release, .\artifacts\local-bundle -Recurse -Force -ErrorAction SilentlyContinue
 pwsh .\scripts\Publish-NativeAsset.ps1 -RuntimeIdentifier win-x64 -Version 0.1.0-local -ArtifactsDirectory .\artifacts\local-release
 Get-ChildItem .\artifacts\local-release
-pwsh .\scripts\Merge-ReleaseBundle.ps1 -InputDirectory .\artifacts\local-release -OutputDirectory .\artifacts\local-bundle -Version 0.1.0-local
+dotnet .\scripts\merge-release-bundle.cs -- --input-directory .\artifacts\local-release --output-directory .\artifacts\local-bundle --release-version 0.1.0-local
 Get-ChildItem .\artifacts\local-bundle
 Expand-Archive -Path .\artifacts\local-bundle\kusto-win-x64.zip -DestinationPath .\artifacts\local-bundle\extract -Force
 ```
 
 After `Publish-NativeAsset`, `.\artifacts\local-release` should contain `kusto-win-x64.zip`, `kusto-win-x64.zip.sha256`, and `kusto-win-x64.json`.
 
-After `Merge-ReleaseBundle`, `.\artifacts\local-bundle` should contain `kusto-win-x64.zip`, `checksums.txt`, and `release-metadata.json`. An `extract` directory on its own is just a previous expansion target; it does not mean the bundle zip was created.
+After `merge-release-bundle.cs`, `.\artifacts\local-bundle` should contain `kusto-win-x64.zip`, `checksums.txt`, and `release-metadata.json`. An `extract` directory on its own is just a previous expansion target; it does not mean the bundle zip was created.
 
 Then run the staged failure scenarios:
 
@@ -573,22 +613,27 @@ dotnet test kusto.slnx
 
 ## CI and release workflow
 
-The repository includes four GitHub Actions workflows:
+The release system is split into narrowly scoped workflows:
 
-- `pr.yml` - restore/build/test validation for pull requests across Ubuntu, Windows, and macOS
-- `ci.yml` - version calculation, build/test validation, native asset publishing, and dev draft release updates on `main`
-- `release.yml` - manual promotion of the prebuilt RC bundle into a GitHub release, including Windows executable signing, without rebuilding
-- `bump-version.yml` - manual semantic-version / phase transitions for `pre`, `rc`, and `rtm`
+- `pr.yml` validates scripts, restore/build/test behavior, NativeAOT, and packaged runtime behavior.
+- `ci.yml` calculates versions, publishes six development and six promotable archives, creates a versioned development prerelease, and advances `release-state`.
+- `bump-version.yml` moves the release state between `pre`, `rc`, and `rtm`.
+- `publish-release.yml` validates a successful `main` CI run, creates its annotated version tag, and dispatches promotion.
+- `release.yml` promotes the exact prebuilt bundle without rebuilding, requires production approval, signs every Windows executable payload, attests final archives, publishes generated release notes, and advances release state.
+- `install-scripts.yml` signs and snapshots both installers to the protected `install-scripts` branch.
+- `attest-install-scripts.yml` attests the immutable installer snapshot and publishes its non-latest release.
+- `releases-cleanup.yml` retains a configurable number of development and installer snapshots.
 
-Version state is stored in the body of the draft `dev` release so CI can calculate the next development and release-candidate versions without committing version files into the repo.
+Mutable version state lives in `version-state.json` on the workflow-managed `release-state` branch. Release-state writers share one concurrency group.
 
 ### Typical maintainer flow
 
 1. Open a pull request and let `pr.yml` validate restore/build/test behavior.
-2. Merge to `main`, which lets `ci.yml` calculate versions, publish native assets, and refresh the draft `dev` release.
+2. Merge to `main`, which lets `ci.yml` calculate versions, publish native assets, create a versioned development prerelease, and update `release-state`.
 3. When you want to move between `pre`, `rc`, or `rtm`, run `bump-version.yml`.
-4. When the RC bundle is the one you want to ship, run `release.yml` to sign the Windows executables and promote those already-built artifacts into the GitHub release.
-5. The next push to `main` refreshes the draft `dev` release for ongoing development.
+4. Run `publish-release.yml` for the successful CI run to tag and promote its already-built official bundle.
+5. Approve the `production` deployment. The release workflow signs, attests, and publishes the exact tagged bundle.
+6. Run `install-scripts.yml` when installer source changes, then approve its signed immutable snapshot.
 
 ## Native release asset layout
 
@@ -605,15 +650,15 @@ Release assets are intentionally shaped for stable download URLs and easy platfo
 
 - Windows: zip archives such as `kusto-win-x64.zip`
 - Linux/macOS: tarballs such as `kusto-linux-x64.tar.gz`
-- Archive contents: `kusto.exe` on Windows, `kusto` on Linux/macOS, plus `LICENSE`
+- Archive contents: `kusto[.exe]`, required SkiaSharp/HarfBuzzSharp/libsodium native sidecars, license/notices, and `payload-manifest.json`
 - Bundles always include `checksums.txt` and `release-metadata.json`
-- `release.yml` re-signs the Windows archives before publishing the final GitHub release, leaving Linux and macOS assets untouched
+- `release.yml` signs every Windows executable payload, regenerates hashes/metadata, and attests all final archives before publishing
 
 If you want to generate the same release-shaped outputs locally, use the helper scripts instead of calling `dotnet publish` directly:
 
 ```powershell
 pwsh .\scripts\Publish-NativeAsset.ps1 -RuntimeIdentifier win-x64 -Version 0.1.0 -ArtifactsDirectory .\artifacts\local-release
-pwsh .\scripts\Merge-ReleaseBundle.ps1 -InputDirectory .\artifacts\local-release -OutputDirectory .\artifacts\local-bundle -Version 0.1.0
+dotnet .\scripts\merge-release-bundle.cs -- --input-directory .\artifacts\local-release --output-directory .\artifacts\local-bundle --release-version 0.1.0
 ```
 
 ## NativeAOT prerequisites
@@ -657,4 +702,3 @@ dotnet publish ./src/Kusto.Cli/ --os linux [--arch <arch>]
 ## License
 
 MIT
-
