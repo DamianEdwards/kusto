@@ -73,6 +73,32 @@ public sealed class ProvenanceVerifierTests
         Assert.Contains("valid SHA256", exception.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void GetWindowsPowerShellModulePath_UsesWindowsPowerShellLocations()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var paths = ProvenanceVerifier.GetWindowsPowerShellModulePath()
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
+
+        Assert.Contains(
+            paths,
+            path => path.EndsWith(
+                @"WindowsPowerShell\v1.0\Modules",
+                StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(
+            paths,
+            path => path.Contains(
+                @"PowerShell\7\Modules",
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(
+            paths.Length,
+            paths.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+    }
+
     private sealed class ProvenanceFixture : IDisposable
     {
         public ProvenanceFixture()
