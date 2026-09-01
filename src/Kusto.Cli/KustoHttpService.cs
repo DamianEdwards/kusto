@@ -13,24 +13,24 @@ public sealed class KustoHttpService(HttpClient httpClient, ITokenProvider token
     private readonly ILogger<KustoHttpService> _logger = logger;
 
     public Task<TabularData> ExecuteManagementCommandAsync(
-        string clusterUrl,
+        ResolvedCluster cluster,
         string? database,
         string command,
         IReadOnlyDictionary<string, string>? queryParameters,
         CancellationToken cancellationToken)
     {
-        return ExecuteManagementCommandCoreAsync(clusterUrl, database, command, queryParameters, cancellationToken);
+        return ExecuteManagementCommandCoreAsync(cluster, database, command, queryParameters, cancellationToken);
     }
 
     public async Task<QueryExecutionResult> ExecuteQueryAsync(
-        string clusterUrl,
+        ResolvedCluster cluster,
         string database,
         string query,
         bool includeStatistics,
         CancellationToken cancellationToken)
     {
         var tables = await ExecuteAsync(
-            clusterUrl,
+            cluster,
             "/v2/rest/query",
             new KustoRequestPayload { Db = database, Csl = query },
             database,
@@ -39,13 +39,13 @@ public sealed class KustoHttpService(HttpClient httpClient, ITokenProvider token
 
         return new QueryExecutionResult(
             new TabularData(primaryResult.Columns, primaryResult.Rows),
-            KustoWebExplorerUrlBuilder.Build(clusterUrl, database, query),
+            KustoWebExplorerUrlBuilder.Build(cluster.Url, database, query),
             includeStatistics ? KustoQueryStatisticsExtractor.Extract(tables) : null,
             KustoVisualizationExtractor.Extract(tables));
     }
 
     private async Task<TabularData> ExecuteManagementCommandCoreAsync(
-        string clusterUrl,
+        ResolvedCluster cluster,
         string? database,
         string command,
         IReadOnlyDictionary<string, string>? queryParameters,
@@ -66,20 +66,21 @@ public sealed class KustoHttpService(HttpClient httpClient, ITokenProvider token
             };
         }
 
-        var tables = await ExecuteAsync(clusterUrl, "/v1/rest/mgmt", payload, database, cancellationToken);
+        var tables = await ExecuteAsync(cluster, "/v1/rest/mgmt", payload, database, cancellationToken);
         var primaryResult = SelectPrimaryResult(tables);
         return new TabularData(primaryResult.Columns, primaryResult.Rows);
     }
 
     private async Task<List<ParsedKustoTable>> ExecuteAsync(
-        string clusterUrl,
+        ResolvedCluster cluster,
         string endpointPath,
         KustoRequestPayload payload,
         string? database,
         CancellationToken cancellationToken)
     {
+        var clusterUrl = cluster.Url;
         var requestUri = new Uri($"{ClusterUtilities.NormalizeClusterUrl(clusterUrl)}{endpointPath}");
-        var token = await _tokenProvider.GetTokenAsync(clusterUrl, cancellationToken);
+        var token = await _tokenProvider.GetTokenAsync(cluster, cancellationToken);
 
         var payloadJson = JsonSerializer.Serialize(payload, KustoJsonSerializerContext.Default.KustoRequestPayload);
         using var request = new HttpRequestMessage(HttpMethod.Post, requestUri)
@@ -93,7 +94,7 @@ public sealed class KustoHttpService(HttpClient httpClient, ITokenProvider token
         {
             var body = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Kusto request to {Uri} failed with status code {StatusCode}. Body: {Body}", requestUri, (int)response.StatusCode, body);
-            throw new UserFacingException(CreateUserFacingError(response.StatusCode, body, clusterUrl, database));
+            throw new UserFacingException(CreateUserFacingError(response.StatusCode, body, cluster, database));
         }
 
         var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -262,23 +263,36 @@ public sealed class KustoHttpService(HttpClient httpClient, ITokenProvider token
     private static string CreateUserFacingError(
         HttpStatusCode statusCode,
         string responseBody,
-        string clusterUrl,
+        ResolvedCluster cluster,
         string? database)
     {
         var detail = ExtractActionableDetail(responseBody);
-        var targetContext = CreateTargetContext(clusterUrl, database);
+        var targetContext = CreateTargetContext(cluster.Url, database);
 
         return statusCode switch
         {
             HttpStatusCode.BadRequest => string.IsNullOrWhiteSpace(detail)
                 ? $"Kusto rejected the query or command{targetContext}. Check your syntax and verify that the selected cluster and database match the query or command."
                 : $"Kusto rejected the query or command: {detail}",
-            HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden =>
-                "Kusto rejected this request because your identity does not have access. Run 'az login' and verify access to the cluster and database. For sovereign clouds, make sure Azure CLI is set to the matching cloud with 'az cloud set'.",
+            HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => CreateAccessDeniedError(cluster),
             _ => string.IsNullOrWhiteSpace(detail)
                 ? "Kusto request failed. Verify the cluster, database, and your access."
                 : $"Kusto request failed: {detail}"
         };
+    }
+
+    private static string CreateAccessDeniedError(ResolvedCluster cluster)
+    {
+        if (ClusterAuthenticationModes.IsWam(cluster.Authentication))
+        {
+            var account = cluster.Authentication.Account;
+            var accountContext = string.IsNullOrWhiteSpace(account) ? string.Empty : $" as '{account}'";
+            var clusterReference = cluster.Name ?? cluster.Url;
+            return $"Kusto rejected this request because the signed-in Windows account does not have access{accountContext}. " +
+                $"Verify the account has access to the cluster and database, then run 'kusto cluster login {clusterReference}' to re-authenticate.";
+        }
+
+        return "Kusto rejected this request because your identity does not have access. Run 'az login' and verify access to the cluster and database. For sovereign clouds, make sure Azure CLI is set to the matching cloud with 'az cloud set'.";
     }
 
     private static string? ExtractActionableDetail(string responseBody)

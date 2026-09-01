@@ -58,23 +58,11 @@ internal static class PayloadInstaller
                     : $"The update payload manifest does not match the extracted archive.");
         }
 
-        foreach (var required in AppIdentity.GetExecutablePayloadFileNames())
-        {
-            if (!declared.Contains(required))
-            {
-                throw new UserFacingException(
-                    $"The update payload manifest does not contain required file '{required}'.");
-            }
-        }
-
-        var allowed = AppIdentity.GetExecutablePayloadFileNames()
-            .Concat(["LICENSE", "THIRD-PARTY-NOTICES.md"])
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var unexpected = declared.Except(allowed, StringComparer.OrdinalIgnoreCase).ToArray();
-        if (unexpected.Length > 0)
+        var executableFileName = AppIdentity.GetExecutableFileName();
+        if (!declared.Contains(executableFileName))
         {
             throw new UserFacingException(
-                $"The update payload contains unsupported file(s): {string.Join(", ", unexpected)}.");
+                $"The update payload manifest does not contain required file '{executableFileName}'.");
         }
 
         return declared.Order(StringComparer.OrdinalIgnoreCase).ToArray();

@@ -16,19 +16,30 @@ public interface IKustoConnectionResolver
 
 public interface ITokenProvider
 {
-    Task<string> GetTokenAsync(string clusterUrl, CancellationToken cancellationToken);
+    Task<string> GetTokenAsync(ResolvedCluster cluster, CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// Explicit interactive/broker authentication operations for WAM-configured clusters.
+/// Query-time token acquisition never goes through this seam; it stays silent via
+/// <see cref="ITokenProvider"/>.
+/// </summary>
+public interface IClusterAuthenticationService
+{
+    Task LoginAsync(ResolvedCluster cluster, CancellationToken cancellationToken);
+    Task<bool> LogoutAsync(ResolvedCluster cluster, CancellationToken cancellationToken);
 }
 
 public interface IKustoService
 {
     Task<TabularData> ExecuteManagementCommandAsync(
-        string clusterUrl,
+        ResolvedCluster cluster,
         string? database,
         string command,
         IReadOnlyDictionary<string, string>? queryParameters,
         CancellationToken cancellationToken);
     Task<QueryExecutionResult> ExecuteQueryAsync(
-        string clusterUrl,
+        ResolvedCluster cluster,
         string database,
         string query,
         bool includeStatistics,
@@ -44,7 +55,7 @@ public interface ITableSchemaProvider
 {
     Task<TableSchemaDetails> GetTableSchemaDetailsAsync(
         KustoConfig config,
-        string clusterUrl,
+        ResolvedCluster cluster,
         string database,
         string tableName,
         bool refreshOfflineData,
@@ -111,10 +122,12 @@ public sealed class CliRuntime(
     IConfigStore configStore,
     IKustoConnectionResolver connectionResolver,
     IKustoService kustoService,
+    IClusterAuthenticationService clusterAuthenticationService,
     ITableSchemaProvider tableSchemaProvider,
     ITableOfflineDataManager tableOfflineDataManager,
     IConfirmationPrompt confirmationPrompt,
-    IOutputFormatter outputFormatter) : IDisposable
+    IOutputFormatter outputFormatter,
+    params IDisposable[] additionalDisposables) : IDisposable
 {
     public ILoggerFactory LoggerFactory { get; } = loggerFactory;
     public ILogger Logger { get; } = logger;
@@ -122,13 +135,21 @@ public sealed class CliRuntime(
     public IConfigStore ConfigStore { get; } = configStore;
     public IKustoConnectionResolver ConnectionResolver { get; } = connectionResolver;
     public IKustoService KustoService { get; } = kustoService;
+    public IClusterAuthenticationService ClusterAuthenticationService { get; } = clusterAuthenticationService;
     public ITableSchemaProvider TableSchemaProvider { get; } = tableSchemaProvider;
     public ITableOfflineDataManager TableOfflineDataManager { get; } = tableOfflineDataManager;
     public IConfirmationPrompt ConfirmationPrompt { get; } = confirmationPrompt;
     public IOutputFormatter OutputFormatter { get; } = outputFormatter;
 
+    private readonly IDisposable[] _additionalDisposables = additionalDisposables ?? [];
+
     public void Dispose()
     {
+        foreach (var disposable in _additionalDisposables)
+        {
+            disposable.Dispose();
+        }
+
         HttpClient.Dispose();
         LoggerFactory.Dispose();
     }

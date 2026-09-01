@@ -94,10 +94,19 @@ function Get-RequiredPayloadFileNames
     {
         'win'
         {
+            $architecture = $RuntimeIdentifier.Split('-', 2)[1]
+            $msalRuntime = switch ($architecture)
+            {
+                'x64' { 'msalruntime.dll' }
+                'arm64' { 'msalruntime_arm64.dll' }
+                default { throw "Unsupported Windows architecture in runtime identifier '$RuntimeIdentifier'." }
+            }
+
             return @(
                 $BinaryName,
                 'libSkiaSharp.dll',
                 'libHarfBuzzSharp.dll',
+                $msalRuntime,
                 'libsodium.dll',
                 'LICENSE',
                 'THIRD-PARTY-NOTICES.md',

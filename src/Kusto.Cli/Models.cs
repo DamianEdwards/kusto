@@ -194,6 +194,41 @@ public sealed class KnownCluster
 {
     public string Name { get; set; } = string.Empty;
     public string Url { get; set; } = string.Empty;
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ClusterAuthentication? Authentication { get; set; }
+}
+
+/// <summary>
+/// Optional per-cluster authentication descriptor. When absent (null) the cluster
+/// uses the default <c>DefaultAzureCredential</c> flow. When present with
+/// <see cref="Mode"/> == <c>wam</c> the cluster is bound to a specific Windows work
+/// account through the native broker. Never contains tokens or other secrets.
+/// </summary>
+public sealed class ClusterAuthentication
+{
+    public string Mode { get; set; } = ClusterAuthenticationModes.Default;
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TenantId { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Account { get; set; }
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtensionData { get; set; }
+}
+
+public static class ClusterAuthenticationModes
+{
+    public const string Default = "default";
+    public const string Wam = "wam";
+
+    public static string GetDisplayName(ClusterAuthentication? authentication) =>
+        authentication?.Mode ?? Default;
+
+    public static bool IsDefault(ClusterAuthentication? authentication) =>
+        authentication is null ||
+        string.Equals(authentication.Mode, Default, StringComparison.OrdinalIgnoreCase);
+
+    public static bool IsWam(ClusterAuthentication? authentication) =>
+        authentication is not null && string.Equals(authentication.Mode, Wam, StringComparison.OrdinalIgnoreCase);
 }
 
 public sealed class SchemaCacheConfig
@@ -217,10 +252,39 @@ public sealed class OfflineTableDataExport
     public List<DatabaseSchemaCacheEntry> Entries { get; set; } = [];
 }
 
-public sealed class ResolvedCluster(string? name, string url)
+public sealed class ResolvedCluster(string? name, string url, ClusterAuthentication? authentication = null)
 {
     public string? Name { get; } = name;
     public string Url { get; } = url;
+
+    /// <summary>
+    /// The authentication descriptor resolved for this cluster. Never null: clusters
+    /// without an explicit descriptor resolve to the default (<c>DefaultAzureCredential</c>)
+    /// mode so token acquisition can route explicitly per request.
+    /// </summary>
+    public ClusterAuthentication Authentication { get; } = authentication ?? new ClusterAuthentication();
+}
+
+/// <summary>
+/// Validated, non-secret Kusto authentication metadata read from a cluster's
+/// unauthenticated <c>/v1/rest/auth/metadata</c> endpoint.
+/// </summary>
+internal sealed record KustoAuthMetadata(string ClientId, Uri AuthorityHost, string Resource, string LoginEndpoint);
+
+internal sealed class KustoAuthMetadataEnvelope
+{
+    [JsonPropertyName("AzureAD")]
+    public KustoAzureAdMetadata? AzureAd { get; set; }
+}
+
+internal sealed class KustoAzureAdMetadata
+{
+    [JsonPropertyName("LoginEndpoint")]
+    public string? LoginEndpoint { get; set; }
+    [JsonPropertyName("KustoClientAppId")]
+    public string? KustoClientAppId { get; set; }
+    [JsonPropertyName("KustoServiceResourceId")]
+    public string? KustoServiceResourceId { get; set; }
 }
 
 internal sealed class KustoRequestPayload

@@ -99,6 +99,26 @@ public sealed class ProvenanceVerifierTests
             paths.Distinct(StringComparer.OrdinalIgnoreCase).Count());
     }
 
+    [Fact]
+    public void GetWindowsExecutablePayloadFileNames_SelectsEveryExeAndDll()
+    {
+        var files = ProvenanceVerifier.GetWindowsExecutablePayloadFileNames(
+        [
+            "kusto.exe",
+            "libSkiaSharp.dll",
+            "native/msalruntime.dll",
+            "LICENSE",
+            "data/settings.json"
+        ]);
+
+        Assert.Equal(
+        [
+            "kusto.exe",
+            "libSkiaSharp.dll",
+            "native/msalruntime.dll"
+        ], files);
+    }
+
     private sealed class ProvenanceFixture : IDisposable
     {
         public ProvenanceFixture()

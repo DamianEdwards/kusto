@@ -313,25 +313,14 @@ get_kusto_version() {
 }
 
 assert_payload_complete() {
-    local directory="$1" platform="$2"
-    local sidecar_skia sidecar_harf
-    if [[ "$platform" == linux ]]; then
-        sidecar_skia=libSkiaSharp.so
-        sidecar_harf=libHarfBuzzSharp.so
-    else
-        sidecar_skia=libSkiaSharp.dylib
-        sidecar_harf=libHarfBuzzSharp.dylib
-    fi
-    local required
-    local sidecar_sodium
-    if [[ "$platform" == linux ]]; then sidecar_sodium=libsodium.so; else sidecar_sodium=libsodium.dylib; fi
-    for required in kusto "$sidecar_skia" "$sidecar_harf" "$sidecar_sodium" LICENSE THIRD-PARTY-NOTICES.md payload-manifest.json; do
+    local directory="$1" required
+    for required in kusto payload-manifest.json; do
         [[ -f "${directory}/${required}" ]] || die "Downloaded archive is missing required payload '$required'."
     done
 }
 
 validate_payload_manifest() {
-    local directory="$1" platform="$2"
+    local directory="$1"
     local manifest="${directory}/payload-manifest.json"
     jq -e '
         .files | type == "array" and length > 0 and
@@ -355,15 +344,6 @@ validate_payload_manifest() {
     )
     [[ "$declared" == "$actual" ]] ||
         die "payload-manifest.json does not exactly describe the extracted payload; the manifest itself must be excluded."
-
-    local entry
-    while IFS= read -r entry; do
-        case "${platform}:${entry}" in
-            linux:kusto|linux:LICENSE|linux:THIRD-PARTY-NOTICES.md|linux:libSkiaSharp.so|linux:libHarfBuzzSharp.so|linux:libsodium.so) ;;
-            osx:kusto|osx:LICENSE|osx:THIRD-PARTY-NOTICES.md|osx:libSkiaSharp.dylib|osx:libHarfBuzzSharp.dylib|osx:libsodium.dylib) ;;
-            *) die "Release archive contains unsupported payload file '$entry'." ;;
-        esac
-    done < <(jq -r '.files[]' "$manifest")
 }
 
 extract_archive_safely() {
@@ -593,8 +573,8 @@ install_kusto() {
 
     mkdir -p "$extract"
     extract_archive_safely "$archive" "$extract"
-    assert_payload_complete "$extract" "$platform"
-    validate_payload_manifest "$extract" "$platform"
+    assert_payload_complete "$extract"
+    validate_payload_manifest "$extract"
     chmod +x "${extract}/kusto"
     local smoke_path="${temp}/chart-self-test.png"
     "${extract}/kusto" _diag chart-self-test --output "$smoke_path" >/dev/null ||

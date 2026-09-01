@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace Kusto.Cli;
 
 public static class ClusterUtilities
@@ -91,6 +93,53 @@ public static class ClusterUtilities
 
     public static bool IsProxyHost(string host) => ProxyHosts.Contains(host);
 
+    /// <summary>
+    /// Resolves a <see cref="ResolvedCluster"/> (including any saved authentication
+    /// descriptor) for a raw cluster URL. Used by maintenance paths that operate on
+    /// stored cluster URLs rather than a user-supplied cluster reference so that the
+    /// correct per-cluster authentication is applied per request.
+    /// </summary>
+    public static ResolvedCluster ResolveClusterForUrl(KustoConfig config, string clusterUrl)
+    {
+        var normalized = NormalizeClusterUrl(clusterUrl);
+        var known = FindKnownCluster(config, normalized);
+        return new ResolvedCluster(known?.Name, normalized, known?.Authentication);
+    }
+
+    private static ClusterAuthentication? NormalizeAuthentication(
+        ClusterAuthentication? authentication,
+        bool validateAuthentication)
+    {
+        if (authentication is null)
+        {
+            return null;
+        }
+
+        if (!validateAuthentication)
+        {
+            return new ClusterAuthentication
+            {
+                Mode = authentication.Mode?.Trim() ?? ClusterAuthenticationModes.Default,
+                TenantId = string.IsNullOrWhiteSpace(authentication.TenantId)
+                    ? null
+                    : authentication.TenantId.Trim(),
+                Account = string.IsNullOrWhiteSpace(authentication.Account)
+                    ? null
+                    : authentication.Account.Trim(),
+                ExtensionData = authentication.ExtensionData is null
+                    ? null
+                    : new Dictionary<string, JsonElement>(
+                        authentication.ExtensionData,
+                        StringComparer.Ordinal)
+            };
+        }
+
+        return ClusterAuthenticationParser.ParseForAdd(
+            authentication.Mode,
+            authentication.TenantId,
+            authentication.Account);
+    }
+
     public static KnownCluster? FindKnownCluster(KustoConfig config, string clusterReference)
     {
         foreach (var cluster in config.Clusters)
@@ -116,7 +165,9 @@ public static class ClusterUtilities
         return null;
     }
 
-    public static KustoConfig NormalizeConfig(KustoConfig? config)
+    public static KustoConfig NormalizeConfig(
+        KustoConfig? config,
+        bool validateAuthentication = true)
     {
         if (config is null)
         {
@@ -155,6 +206,9 @@ public static class ClusterUtilities
             var current = config.Clusters[i];
             current.Name = current.Name.Trim();
             current.Url = NormalizeClusterUrl(current.Url);
+            current.Authentication = NormalizeAuthentication(
+                current.Authentication,
+                validateAuthentication);
         }
 
         var normalizedOverrides = new List<SchemaCacheOverride>();

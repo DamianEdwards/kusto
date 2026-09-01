@@ -13,10 +13,10 @@ internal static class AppIdentity
     public static string GetExecutableFileName()
         => OperatingSystem.IsWindows() ? $"{CommandName}.exe" : CommandName;
 
-    public static IReadOnlyList<string> GetExecutablePayloadFileNames()
-        => OperatingSystem.IsWindows()
-            ? ["kusto.exe", "libSkiaSharp.dll", "libHarfBuzzSharp.dll", "libsodium.dll"]
-            : OperatingSystem.IsMacOS()
-                ? ["kusto", "libSkiaSharp.dylib", "libHarfBuzzSharp.dylib", "libsodium.dylib"]
-                : ["kusto", "libSkiaSharp.so", "libHarfBuzzSharp.so", "libsodium.so"];
+    public static bool IsWindowsExecutablePayloadFile(string path)
+    {
+        var extension = Path.GetExtension(path);
+        return extension.Equals(".exe", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".dll", StringComparison.OrdinalIgnoreCase);
+    }
 }

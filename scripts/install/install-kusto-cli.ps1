@@ -5,7 +5,7 @@ param(
 
     [switch]$Force,
 
-    [string]$TargetPath = (Join-Path $env:USERPROFILE '.kusto\bin'),
+    [string]$TargetPath = (Join-Path $HOME '.kusto\bin'),
 
     [bool]$UpdatePath = $true,
 
@@ -37,7 +37,7 @@ else
     [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)
 }
 
-if (-not $runningOnWindows)
+if (-not $runningOnWindows -and -not $NoExecute)
 {
     $scriptName = if ($MyInvocation.MyCommand.Name) { $MyInvocation.MyCommand.Name } else { 'install-kusto-cli.ps1' }
     Write-Error "$scriptName currently supports Windows only. Running on '$([System.Runtime.InteropServices.RuntimeInformation]::OSDescription)' is not yet supported."
@@ -451,26 +451,21 @@ function Get-KustoInstallerTrustConfiguration
         ExpectedSignerSubject = $ExpectedSignerSubject
         ExpectedSignerIssuerSha512Thumbprints = @($ExpectedSignerIssuerSha512Thumbprints)
         ExpectedSignerParentIssuerSha512Thumbprints = @($ExpectedSignerParentIssuerSha512Thumbprints)
-        # Expected executable payload files inside a Windows release archive. Every
-        # file listed here must be present after extraction, must be Authenticode-signed
-        # by the configured signer, and is also tracked by the installer so that
-        # upgrades can clean up sidecars that future versions remove. Update this list
-        # alongside any change to the publish/signing pipeline (see
-        # scripts/Publish-NativeAsset.ps1).
-        ExpectedExecutablePayloadFiles = @(
-            'kusto.exe',
-            'libSkiaSharp.dll',
-            'libHarfBuzzSharp.dll',
-            'libsodium.dll'
-        )
-        # Non-executable payload files that should be carried alongside the binaries.
-        # These don't need signing but the installer should still keep them in sync.
-        ExpectedAuxiliaryPayloadFiles = @(
-            'LICENSE',
-            'THIRD-PARTY-NOTICES.md',
-            'payload-manifest.json'
-        )
     }
+}
+
+function Get-WindowsExecutablePayloadFiles
+{
+    param([Parameter(Mandatory)][string[]]$PayloadFiles)
+
+    return @(
+        $PayloadFiles |
+            Where-Object {
+                $extension = [System.IO.Path]::GetExtension($_)
+                $extension -ieq '.exe' -or $extension -ieq '.dll'
+            } |
+            Sort-Object -Unique
+    )
 }
 
 #region SharedProvenanceFunctions
@@ -1478,27 +1473,14 @@ function Invoke-KustoCliInstall
         $downloadedBinaryPath = $extractedPayload.BinaryPath
         $extractDirectory = $extractedPayload.ExtractDirectory
 
-        $trustConfig = Get-KustoInstallerTrustConfiguration
-        $expectedExecutablePayload = @($trustConfig.ExpectedExecutablePayloadFiles)
-        $expectedAuxiliaryPayload = @($trustConfig.ExpectedAuxiliaryPayloadFiles)
-        $allExpectedPayload = @($expectedExecutablePayload + $expectedAuxiliaryPayload)
-
-        Assert-ExtractedPayloadComplete -ExtractDirectory $extractDirectory -RequiredFileNames $allExpectedPayload
+        Assert-ExtractedPayloadComplete -ExtractDirectory $extractDirectory -RequiredFileNames @('kusto.exe', 'payload-manifest.json')
         $manifestPayloadFiles = @(Assert-PayloadManifestMatches -ExtractDirectory $extractDirectory)
-        $allowedPayloadFiles = @($allExpectedPayload | Where-Object { $_ -ne 'payload-manifest.json' })
-        $unexpectedPayloadFiles = @($manifestPayloadFiles | Where-Object { $_ -notin $allowedPayloadFiles })
-        if ($unexpectedPayloadFiles.Count -gt 0)
-        {
-            throw "Downloaded archive contains unsupported payload file(s): $($unexpectedPayloadFiles -join ', ')."
-        }
+        $executablePayloadFiles = @(Get-WindowsExecutablePayloadFiles -PayloadFiles $manifestPayloadFiles)
 
         if ($Quality -ne 'Dev')
         {
             Invoke-StatusStep -Message 'Verifying asset provenance' -Action {
-                # Verify Authenticode trust on every executable payload file (kusto.exe + native sidecars).
-                # Treating the .exe alone as the trust signal would let an unsigned/swapped libSkiaSharp.dll
-                # be loaded by a signed kusto.exe at first chart render.
-                foreach ($payloadName in $expectedExecutablePayload)
+                foreach ($payloadName in $executablePayloadFiles)
                 {
                     $payloadPath = Join-Path $extractDirectory $payloadName
                     $null = Assert-WindowsBinaryTrust -BinaryPath $payloadPath -ExpectedSubject $ExpectedSignerSubject -ExpectedIssuerSha512Thumbprints $ExpectedSignerIssuerSha512Thumbprints -ExpectedParentIssuerSha512Thumbprints $ExpectedSignerParentIssuerSha512Thumbprints
@@ -1548,7 +1530,7 @@ function Invoke-KustoCliInstall
                 Install-KustoPayload `
                     -SourceDirectory $extractDirectory `
                     -InstallDirectory $installDirectory `
-                    -KnownPayloadFileNames @($allExpectedPayload + $manifestPayloadFiles)
+                    -KnownPayloadFileNames $manifestPayloadFiles
             }
         }
 

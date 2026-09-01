@@ -20,7 +20,7 @@ public sealed class AzureTokenProviderTests
             });
         });
 
-        var token = await provider.GetTokenAsync("https://mycluster.kusto.usgovcloudapi.net", CancellationToken.None);
+        var token = await provider.GetTokenAsync(new ResolvedCluster(null, "https://mycluster.kusto.usgovcloudapi.net"), CancellationToken.None);
 
         Assert.Equal("gov-token", token);
         Assert.Equal(AzureAuthorityHosts.AzureGovernment.AbsoluteUri, authorityHost?.AbsoluteUri);
@@ -42,11 +42,21 @@ public sealed class AzureTokenProviderTests
             });
         });
 
-        var token = await provider.GetTokenAsync("https://example.com", CancellationToken.None);
+        var token = await provider.GetTokenAsync(new ResolvedCluster(null, "https://example.com"), CancellationToken.None);
 
         Assert.Equal("public-token", token);
         Assert.Equal(AzureAuthorityHosts.AzurePublicCloud.AbsoluteUri, authorityHost?.AbsoluteUri);
         Assert.Equal("https://kusto.kusto.windows.net/.default", Assert.Single(requestContext!.Value.Scopes));
+    }
+
+    [Fact]
+    public void CreateDefaultCredentialOptions_PreservesNonBrokerCredentialChain()
+    {
+        var options = AzureTokenProvider.CreateDefaultCredentialOptions(AzureAuthorityHosts.AzurePublicCloud);
+
+        Assert.Equal(AzureAuthorityHosts.AzurePublicCloud.AbsoluteUri, options.AuthorityHost.AbsoluteUri);
+        Assert.True(options.ExcludeBrokerCredential);
+        Assert.True(options.ExcludeVisualStudioCodeCredential);
     }
 
     private sealed class RecordingTokenCredential(Func<TokenRequestContext, AccessToken> tokenFactory) : TokenCredential

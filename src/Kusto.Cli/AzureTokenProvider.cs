@@ -17,9 +17,9 @@ public sealed class AzureTokenProvider : ITokenProvider
         _credentialFactory = credentialFactory;
     }
 
-    public async Task<string> GetTokenAsync(string clusterUrl, CancellationToken cancellationToken)
+    public async Task<string> GetTokenAsync(ResolvedCluster cluster, CancellationToken cancellationToken)
     {
-        var cloud = KustoCloudEnvironmentResolver.ResolveForAuthentication(clusterUrl);
+        var cloud = KustoCloudEnvironmentResolver.ResolveForAuthentication(cluster.Url);
         var credential = _credentialFactory(cloud.AuthorityHost);
         var token = await credential.GetTokenAsync(new TokenRequestContext([cloud.Scope]), cancellationToken);
         return token.Token;
@@ -27,9 +27,16 @@ public sealed class AzureTokenProvider : ITokenProvider
 
     private static TokenCredential CreateCredential(Uri authorityHost)
     {
-        return new DefaultAzureCredential(new DefaultAzureCredentialOptions
+        return new DefaultAzureCredential(CreateDefaultCredentialOptions(authorityHost));
+    }
+
+    internal static DefaultAzureCredentialOptions CreateDefaultCredentialOptions(Uri authorityHost)
+    {
+        return new DefaultAzureCredentialOptions
         {
-            AuthorityHost = authorityHost
-        });
+            AuthorityHost = authorityHost,
+            ExcludeBrokerCredential = true,
+            ExcludeVisualStudioCodeCredential = true
+        };
     }
 }

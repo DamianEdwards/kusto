@@ -43,29 +43,19 @@ else
         throw "Payload directory '$resolvedPayloadDirectory' was not found."
     }
 
-    $expectedExecutableFiles = @($config.ExpectedExecutablePayloadFiles)
-    if ($expectedExecutableFiles.Count -eq 0)
+    $manifestPayloadFiles = @(Assert-PayloadManifestMatches -ExtractDirectory $resolvedPayloadDirectory)
+    Assert-ExtractedPayloadComplete `
+        -ExtractDirectory $resolvedPayloadDirectory `
+        -RequiredFileNames @('kusto.exe', 'payload-manifest.json')
+    $executablePayloadFiles = @(Get-WindowsExecutablePayloadFiles -PayloadFiles $manifestPayloadFiles)
+    if ($executablePayloadFiles.Count -eq 0)
     {
-        throw "Installer trust configuration does not list any expected executable payload files."
+        throw "Payload directory '$resolvedPayloadDirectory' does not contain any executable files."
     }
 
-    $missing = @()
-    foreach ($name in $expectedExecutableFiles)
+    foreach ($name in $executablePayloadFiles)
     {
-        $candidate = Join-Path $resolvedPayloadDirectory $name
-        if (-not (Test-Path $candidate))
-        {
-            $missing += $name
-        }
-        else
-        {
-            $binariesToVerify += $candidate
-        }
-    }
-
-    if ($missing.Count -gt 0)
-    {
-        throw "Payload directory '$resolvedPayloadDirectory' is missing required executable file(s): $($missing -join ', ')."
+        $binariesToVerify += Join-Path $resolvedPayloadDirectory $name
     }
 }
 
