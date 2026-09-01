@@ -218,6 +218,7 @@ internal sealed class ProvenanceVerifier(ILogger<ProvenanceVerifier> logger)
             startInfo.ArgumentList.Add(scriptPath);
             startInfo.ArgumentList.Add("-BinaryPath");
             startInfo.ArgumentList.Add(binaryPath);
+            startInfo.Environment["PSModulePath"] = GetWindowsPowerShellModulePath();
 
             using var process = Process.Start(startInfo)
                 ?? throw new UserFacingException(
@@ -340,4 +341,32 @@ internal sealed class ProvenanceVerifier(ILogger<ProvenanceVerifier> logger)
         return File.Exists(candidate) ? candidate : "powershell.exe";
     }
 
+    private static string GetWindowsPowerShellModulePath()
+    {
+        var modulePaths = new List<string>();
+        var documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        if (!string.IsNullOrWhiteSpace(documents))
+        {
+            modulePaths.Add(Path.Combine(documents, "WindowsPowerShell", "Modules"));
+        }
+
+        var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        if (!string.IsNullOrWhiteSpace(programFiles))
+        {
+            modulePaths.Add(Path.Combine(programFiles, "WindowsPowerShell", "Modules"));
+        }
+
+        if (!string.IsNullOrWhiteSpace(Environment.SystemDirectory))
+        {
+            modulePaths.Add(Path.Combine(
+                Environment.SystemDirectory,
+                "WindowsPowerShell",
+                "v1.0",
+                "Modules"));
+        }
+
+        return string.Join(
+            Path.PathSeparator,
+            modulePaths.Distinct(StringComparer.OrdinalIgnoreCase));
+    }
 }
