@@ -1,40 +1,65 @@
-name: Install Scripts
+name: Publish Install Scripts
 
 on:
   workflow_dispatch:
 
+concurrency:
+  group: install-scripts
+  cancel-in-progress: false
+  queue: max
+
 jobs:
-  sign-install-script:
+  publish-install-scripts:
     runs-on: windows-2022
+    if: github.ref == 'refs/heads/main'
     environment: production
-
     permissions:
-      contents: read
+      actions: write
+      contents: write
       id-token: write
-
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-
+        with:
+          fetch-depth: 0
       - name: Setup .NET
         uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7
         with:
           dotnet-version: '10.0.x'
-
-      - name: Stage install script
+      - name: Stage install scripts
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Path ./artifacts/install-script -Force | Out-Null
-          Copy-Item ./scripts/install/install-kusto-cli.ps1 ./artifacts/install-script/install.ps1 -Force
-
+          New-Item -ItemType Directory -Path './artifacts/install-script/.github/workflows' -Force | Out-Null
+          @(
+            '*.ps1 -text'
+            '*.sh text eol=lf'
+            '*.json text eol=lf'
+            '*.txt text eol=lf'
+            '.github/workflows/*.yml text eol=lf'
+          ) | Set-Content './artifacts/install-script/.gitattributes' -Encoding utf8
+          Copy-Item './scripts/install/install-kusto-cli.ps1' './artifacts/install-script/install.ps1' -Force
+          Copy-Item './scripts/install/install-kusto-cli.sh' './artifacts/install-script/install.sh' -Force
+          Copy-Item './.github/workflows/attest-install-scripts.yml' './artifacts/install-script/.github/workflows/attest-install-scripts.yml' -Force
+      - name: Require signing configuration
+        shell: pwsh
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          AZURE_CERT_PROFILE: ${{ secrets.AZURE_CERT_PROFILE }}
+        run: |
+          $required = 'AZURE_CLIENT_ID','AZURE_TENANT_ID','AZURE_SUBSCRIPTION_ID','AZURE_SIGNING_ENDPOINT','AZURE_SIGNING_ACCOUNT','AZURE_CERT_PROFILE'
+          $missing = @($required | Where-Object { [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) })
+          if ($missing.Count) { throw "Install-script signing is mandatory. Missing secret(s): $($missing -join ', ')." }
       - name: Azure login
         uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Sign install script
+      - name: Sign install.ps1
         uses: azure/artifact-signing-action@b443cf8ea4124818d2ea9f043cba29fc3ec47b16
         with:
           endpoint: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
@@ -56,62 +81,38 @@ jobs:
           exclude-azure-powershell-credential: true
           exclude-azure-developer-cli-credential: true
           exclude-interactive-browser-credential: true
-
-      - name: Upload signed install script
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
-        with:
-          name: signed-install-script
-          path: ./artifacts/install-script/install.ps1
-          retention-days: 7
-
-  publish-install-script:
-    runs-on: ubuntu-latest
-    needs: sign-install-script
-
-    permissions:
-      contents: write
-
-    steps:
-      - name: Download signed install script
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
-        with:
-          name: signed-install-script
-          path: ./artifacts/install-script
-
-      - name: Publish standing install release
+      - name: Verify signed install.ps1
+        shell: pwsh
+        run: ./scripts/Test-InstallerProvenance.ps1 -Scenario InstallerDefaults -InstallerScriptPath './artifacts/install-script/install.ps1' -BinaryPath './artifacts/install-script/install.ps1'
+      - name: Generate install script manifest
+        id: manifest
+        shell: pwsh
+        run: |
+          $version = "install-scripts-v$(Get-Date -Format 'yyyy.MM.dd').${{ github.run_number }}.${{ github.run_attempt }}"
+          dotnet ./scripts/write-install-scripts-manifest.cs -- --directory './artifacts/install-script' --manifest-version $version --source-commit '${{ github.sha }}' --source-ref 'refs/heads/main'
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to generate install script manifest.' }
+          "version=$version" >> $env:GITHUB_OUTPUT
+      - name: Publish install-scripts branch and immutable tag
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-
-          RELEASE_TAG='install-scripts'
-          RELEASE_TITLE='Install Scripts'
-          SCRIPT_PATH='./artifacts/install-script/install.ps1'
-          NOTES='Latest signed installer script for kusto CLI.'
-
-          if [ ! -f "$SCRIPT_PATH" ]; then
-            echo "::error::Signed installer script was not found at $SCRIPT_PATH."
+          VERSION='${{ steps.manifest.outputs.version }}'
+          if git ls-remote --exit-code --tags origin "refs/tags/${VERSION}" >/dev/null 2>&1; then
+            echo "::error::Tag ${VERSION} already exists."
             exit 1
           fi
+          BRANCH_COMMIT=$(bash ./scripts/publish-branch-content.sh install-scripts ./artifacts/install-script "Publish ${VERSION}")
+          git config user.name "${GIT_AUTHOR_NAME:-github-actions[bot]}"
+          git config user.email "${GIT_AUTHOR_EMAIL:-41898282+github-actions[bot]@users.noreply.github.com}"
+          git tag -a "$VERSION" "$BRANCH_COMMIT" -m "Published install scripts snapshot ${VERSION}"
+          git push origin "$VERSION"
 
-          if gh release view "$RELEASE_TAG" --repo "${{ github.repository }}" &>/dev/null; then
-            gh release edit "$RELEASE_TAG" \
-              --repo "${{ github.repository }}" \
-              --latest=false \
-              --title "$RELEASE_TITLE" \
-              --notes "$NOTES" \
-              --target "${{ github.sha }}"
-          else
-            gh release create "$RELEASE_TAG" \
-              --repo "${{ github.repository }}" \
-              --latest=false \
-              --target "${{ github.sha }}" \
-              --title "$RELEASE_TITLE" \
-              --notes "$NOTES"
-          fi
-
-          gh release upload "$RELEASE_TAG" \
-            --repo "${{ github.repository }}" \
-            "$SCRIPT_PATH" \
-            --clobber
+          # A failed dispatch is recoverable by manually running the attestation
+          # workflow on VERSION; the signed branch and immutable tag remain intact.
+          gh workflow run attest-install-scripts.yml --repo '${{ github.repository }}' --ref "$VERSION"
+          echo "## Install Scripts Published" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Branch:** \`install-scripts\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Snapshot:** \`${VERSION}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Source commit:** \`${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"

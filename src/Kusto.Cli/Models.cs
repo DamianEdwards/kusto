@@ -187,6 +187,7 @@ public sealed class KustoConfig
     public string? DefaultClusterUrl { get; set; }
     public Dictionary<string, string> DefaultDatabases { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public SchemaCacheConfig SchemaCache { get; set; } = new();
+    public bool IncludePrereleaseUpdates { get; set; }
 }
 
 public sealed class KnownCluster

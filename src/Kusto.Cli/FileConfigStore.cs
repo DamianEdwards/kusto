@@ -5,7 +5,7 @@ namespace Kusto.Cli;
 public sealed class FileConfigStore(string? configPath = null) : IConfigStore
 {
     private readonly string _configPath = string.IsNullOrWhiteSpace(configPath)
-            ? ResolveDefaultConfigPath()
+            ? ResolveConfigPath()
             : configPath;
 
     public async Task<KustoConfig> LoadAsync(CancellationToken cancellationToken)
@@ -48,7 +48,7 @@ public sealed class FileConfigStore(string? configPath = null) : IConfigStore
             cancellationToken);
     }
 
-    private static string ResolveDefaultConfigPath()
+    internal static string ResolveConfigPath()
     {
         var configuredPath = Environment.GetEnvironmentVariable("KUSTO_CONFIG_PATH");
         if (!string.IsNullOrWhiteSpace(configuredPath))
@@ -56,7 +56,6 @@ public sealed class FileConfigStore(string? configPath = null) : IConfigStore
             return configuredPath;
         }
 
-        var userProfilePath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        return Path.Combine(userProfilePath, ".kusto", "config.json");
+        return Path.Combine(AppPaths.GetAppHomeDirectory(), "config.json");
     }
 }

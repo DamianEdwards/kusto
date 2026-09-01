@@ -1,0 +1,44 @@
+name: Publish Native Asset
+description: Publish, smoke-test, and upload a NativeAOT release asset.
+
+inputs:
+  runtime-identifier:
+    description: The .NET runtime identifier to publish for.
+    required: true
+  version:
+    description: Semantic version to inject into the publish.
+    required: true
+  artifacts-directory:
+    description: Directory to place the published assets in.
+    required: true
+  artifact-name:
+    description: Name for the uploaded GitHub Actions artifact.
+    required: true
+  smoke-test:
+    description: Whether the runner can execute this RID's packaged binary.
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Setup .NET
+      uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7
+      with:
+        dotnet-version: '10.0.x'
+
+    - name: Publish native asset
+      shell: pwsh
+      run: ./scripts/Publish-NativeAsset.ps1 -RuntimeIdentifier '${{ inputs.runtime-identifier }}' -Version '${{ inputs.version }}' -ArtifactsDirectory '${{ inputs.artifacts-directory }}'
+
+    - name: Smoke-test packaged archive
+      if: inputs.smoke-test == 'true'
+      shell: pwsh
+      run: ./scripts/Test-PackagedArchive.ps1 -RuntimeIdentifier '${{ inputs.runtime-identifier }}' -Version '${{ inputs.version }}' -ArtifactsDirectory '${{ inputs.artifacts-directory }}' -SkipPublish
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ inputs.artifacts-directory }}/*
+        retention-days: 90

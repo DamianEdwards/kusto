@@ -6,353 +6,277 @@ on:
     paths-ignore:
       - '**/*.md'
 
+concurrency:
+  group: release-state
+  cancel-in-progress: false
+  queue: max
+
 env:
   DOTNET_NOLOGO: true
   DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
 
 jobs:
-  version:
+  validate-scripts:
     runs-on: ubuntu-latest
-
-    permissions:
-      contents: write
-      actions: read
-
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-      rc_version: ${{ steps.version.outputs.rc_version }}
-      next_state: ${{ steps.version.outputs.next_state }}
-      state_json: ${{ steps.version.outputs.state_json }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           fetch-depth: 0
+      - name: Validate scripts
+        uses: ./.github/actions/validate-scripts
 
+  version:
+    runs-on: ubuntu-latest
+    needs: [validate-scripts]
+    permissions:
+      contents: read
+    outputs:
+      dev_version: ${{ steps.version.outputs.dev_version }}
+      release_version: ${{ steps.version.outputs.release_version }}
+      next_state: ${{ steps.version.outputs.next_state }}
+      state_json: ${{ steps.version.outputs.state_json }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
       - name: Setup .NET
         uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7
         with:
           dotnet-version: '10.0.x'
-
-      - name: Calculate version
+      - name: Calculate versions from release state
         id: version
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-
-          DEV_RELEASE_BODY=$(gh release view dev --repo "${{ github.repository }}" --json body --jq '.body // empty' 2>/dev/null || echo "")
-
-          if [ -n "$DEV_RELEASE_BODY" ]; then
-            STATE_JSON=$(dotnet scripts/version.cs state --body "$DEV_RELEASE_BODY")
+          RELEASE_STATE_REF=$(git ls-remote --heads origin release-state)
+          if [ -n "$RELEASE_STATE_REF" ]; then
+            git fetch origin release-state
+            STATE_JSON=$(git show origin/release-state:version-state.json)
           else
-            RELEASES_JSON=$(gh release list --repo "${{ github.repository }}" --json tagName,isDraft,isPrerelease --limit 100 2>/dev/null || echo "[]")
+            RELEASES_JSON=$(gh release list --repo "${{ github.repository }}" --json tagName,isDraft,isPrerelease --limit 1000)
             STATE_JSON=$(dotnet scripts/version.cs state --releases-json "$RELEASES_JSON")
           fi
 
-          echo "Current state: $STATE_JSON"
-
           VERSIONS_JSON=$(dotnet scripts/version.cs calculate --state "$STATE_JSON")
-          echo "Calculated versions: $VERSIONS_JSON"
-
           DEV_VERSION=$(echo "$VERSIONS_JSON" | jq -r '.devVersion')
-          RC_VERSION=$(echo "$VERSIONS_JSON" | jq -r '.rcVersion')
+          RELEASE_VERSION=$(echo "$VERSIONS_JSON" | jq -r '.rcVersion')
           NEXT_STATE=$(echo "$VERSIONS_JSON" | jq -r '.nextState')
           STATE_JSON_COMPACT=$(echo "$STATE_JSON" | jq -c '.')
-
-          echo "version=${DEV_VERSION}" >> "$GITHUB_OUTPUT"
-          echo "rc_version=${RC_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "dev_version=${DEV_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "release_version=${RELEASE_VERSION}" >> "$GITHUB_OUTPUT"
           echo "next_state=${NEXT_STATE}" >> "$GITHUB_OUTPUT"
           echo "state_json=${STATE_JSON_COMPACT}" >> "$GITHUB_OUTPUT"
-
           echo "## Version Information" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **Dev Version:** ${DEV_VERSION}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **RC Version:** ${RC_VERSION}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Current state:** \`${STATE_JSON_COMPACT}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Dev version:** \`${DEV_VERSION}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Promotable release version:** \`${RELEASE_VERSION}\`" >> "$GITHUB_STEP_SUMMARY"
 
-  validate-powershell-scripts:
+  build:
     runs-on: ubuntu-latest
-
+    needs: [version]
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-
-      - name: Validate PowerShell script syntax
-        shell: pwsh
-        run: ./scripts/Verify-PowerShellSyntax.ps1
-
-  build-test:
-    runs-on: ubuntu-latest
-    needs: [version, validate-powershell-scripts]
-
-    permissions:
-      checks: write
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-
       - name: Build
         uses: ./.github/actions/build
         with:
-          version: ${{ needs.version.outputs.version }}
+          version: ${{ needs.version.outputs.dev_version }}
           validate-native-aot: 'true'
           aot-runtime-identifier: linux-x64
 
+  test:
+    needs: [version]
+    permissions:
+      checks: write
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - name: Build
+        uses: ./.github/actions/build
+        with:
+          version: ${{ needs.version.outputs.dev_version }}
       - name: Test
         run: dotnet test kusto.slnx --configuration Release --no-build --nologo --tl:off --logger "trx;LogFileName=test-results.trx" --logger "html;LogFileName=test-results.html" --results-directory ./test-results
-
       - name: Upload test results
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         with:
-          name: test-results
+          name: test-results-${{ matrix.os }}
           path: |
             ./test-results/*.trx
             ./test-results/*.html
           retention-days: 30
-
       - name: Publish test results
-        uses: dorny/test-reporter@2dcf091ad558da2cabf16f6b423e02cd078c937a
         if: always()
+        uses: dorny/test-reporter@2dcf091ad558da2cabf16f6b423e02cd078c937a
         with:
-          name: Test Results
+          name: Test Results (${{ matrix.os }})
           path: ./test-results/*.trx
           reporter: dotnet-trx
 
   publish-dev:
-    needs: [version, build-test]
+    needs: [version, build, test, validate-scripts]
     strategy:
       fail-fast: false
       matrix:
         include:
           - runner: windows-latest
             rid: win-x64
+            smoke: true
           - runner: windows-latest
             rid: win-arm64
+            smoke: false
           - runner: ubuntu-22.04
             rid: linux-x64
-          - runner: ubuntu-22.04
+            smoke: true
+          - runner: ubuntu-22.04-arm
             rid: linux-arm64
+            smoke: true
           - runner: macos-latest
             rid: osx-x64
+            smoke: true
           - runner: macos-latest
             rid: osx-arm64
-
+            smoke: false
     runs-on: ${{ matrix.runner }}
-
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7
+      - name: Publish dev asset
+        uses: ./.github/actions/publish-native
         with:
-          dotnet-version: '10.0.x'
+          runtime-identifier: ${{ matrix.rid }}
+          version: ${{ needs.version.outputs.dev_version }}
+          artifacts-directory: './artifacts/dev'
+          artifact-name: native-dev-${{ matrix.rid }}
+          smoke-test: ${{ matrix.smoke }}
 
-      - name: Install linux-arm64 prerequisites
-        if: matrix.rid == 'linux-arm64'
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo dpkg --add-architecture arm64
-          sudo bash -c 'cat > /etc/apt/sources.list.d/arm64.list <<EOF
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy main restricted
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-updates main restricted
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-backports main restricted universe multiverse
-          EOF'
-          sudo sed -i -e 's/^deb /deb [arch=amd64] /g' /etc/apt/sources.list
-          sudo apt update
-          sudo apt install -y clang llvm binutils-aarch64-linux-gnu gcc-aarch64-linux-gnu zlib1g-dev:arm64
-
-      - name: Publish native asset
-        shell: pwsh
-        run: ./scripts/Publish-NativeAsset.ps1 -RuntimeIdentifier '${{ matrix.rid }}' -Version '${{ needs.version.outputs.version }}' -ArtifactsDirectory './artifacts/dev'
-
-      - name: Smoke-test packaged archive
-        # Skip cross-arch smoke tests: GitHub-hosted runners can't execute
-        # win-arm64 / linux-arm64 binaries on x64 runners, and the *-arm64
-        # AOT publish above already validated the archive shape.
-        if: ${{ !endsWith(matrix.rid, '-arm64') }}
-        shell: pwsh
-        run: ./scripts/Test-PackagedArchive.ps1 -RuntimeIdentifier '${{ matrix.rid }}' -Version '${{ needs.version.outputs.version }}' -ArtifactsDirectory './artifacts/dev' -SkipPublish
-
-      - name: Upload dev artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
-        with:
-          name: native-dev-${{ matrix.rid }}
-          path: ./artifacts/dev/*
-          retention-days: 90
-
-  publish-rc:
-    needs: [version, build-test]
+  publish-promotable:
+    needs: [version, build, test, validate-scripts]
     strategy:
       fail-fast: false
       matrix:
         include:
           - runner: windows-latest
             rid: win-x64
+            smoke: true
           - runner: windows-latest
             rid: win-arm64
+            smoke: false
           - runner: ubuntu-22.04
             rid: linux-x64
-          - runner: ubuntu-22.04
+            smoke: true
+          - runner: ubuntu-22.04-arm
             rid: linux-arm64
+            smoke: true
           - runner: macos-latest
             rid: osx-x64
+            smoke: true
           - runner: macos-latest
             rid: osx-arm64
-
+            smoke: false
     runs-on: ${{ matrix.runner }}
-
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7
+      - name: Publish promotable asset
+        uses: ./.github/actions/publish-native
         with:
-          dotnet-version: '10.0.x'
-
-      - name: Install linux-arm64 prerequisites
-        if: matrix.rid == 'linux-arm64'
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo dpkg --add-architecture arm64
-          sudo bash -c 'cat > /etc/apt/sources.list.d/arm64.list <<EOF
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy main restricted
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-updates main restricted
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-backports main restricted universe multiverse
-          EOF'
-          sudo sed -i -e 's/^deb /deb [arch=amd64] /g' /etc/apt/sources.list
-          sudo apt update
-          sudo apt install -y clang llvm binutils-aarch64-linux-gnu gcc-aarch64-linux-gnu zlib1g-dev:arm64
-
-      - name: Publish native asset
-        shell: pwsh
-        run: ./scripts/Publish-NativeAsset.ps1 -RuntimeIdentifier '${{ matrix.rid }}' -Version '${{ needs.version.outputs.rc_version }}' -ArtifactsDirectory './artifacts/rc'
-
-      - name: Smoke-test packaged archive
-        if: ${{ !endsWith(matrix.rid, '-arm64') }}
-        shell: pwsh
-        run: ./scripts/Test-PackagedArchive.ps1 -RuntimeIdentifier '${{ matrix.rid }}' -Version '${{ needs.version.outputs.rc_version }}' -ArtifactsDirectory './artifacts/rc' -SkipPublish
-
-      - name: Upload RC artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
-        with:
-          name: native-rc-${{ matrix.rid }}
-          path: ./artifacts/rc/*
-          retention-days: 90
+          runtime-identifier: ${{ matrix.rid }}
+          version: ${{ needs.version.outputs.release_version }}
+          artifacts-directory: './artifacts/promotable'
+          artifact-name: native-promotable-${{ matrix.rid }}
+          smoke-test: ${{ matrix.smoke }}
 
   bundle-dev:
     runs-on: ubuntu-latest
     needs: [version, publish-dev]
-
     permissions:
       contents: write
-
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-
+      - name: Setup .NET
+        uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7
+        with:
+          dotnet-version: '10.0.x'
       - name: Download dev artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           pattern: native-dev-*
           path: ./artifacts/dev
           merge-multiple: true
-
       - name: Create dev bundle
-        shell: pwsh
-        run: ./scripts/Merge-ReleaseBundle.ps1 -InputDirectory './artifacts/dev' -OutputDirectory './bundle/dev' -Version '${{ needs.version.outputs.version }}'
-
+        shell: bash
+        run: dotnet ./scripts/merge-release-bundle.cs -- --input-directory './artifacts/dev' --output-directory './bundle/dev' --release-version '${{ needs.version.outputs.dev_version }}' --source-commit '${{ github.sha }}'
       - name: Upload dev bundle artifact
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         with:
           name: native-dev-bundle
           path: ./bundle/dev/*
           retention-days: 90
-
-      - name: Update dev draft release
+      - name: Publish public dev release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
-        run: |
-          set -euo pipefail
+        run: bash ./scripts/update-dev-release.sh '${{ needs.version.outputs.dev_version }}' './bundle/dev' 'Development channel build published from CI.'
 
-          VERSION='${{ needs.version.outputs.version }}'
-          RC_VERSION='${{ needs.version.outputs.rc_version }}'
-          NEXT_STATE='${{ needs.version.outputs.next_state }}'
-          NOTES=$(cat <<EOF
-          ## Development Build
-
-          **Dev Version:** ${VERSION}
-          **RC Version:** ${RC_VERSION}
-          **Commit:** ${{ github.sha }}
-          **Build:** [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-
-          This draft release contains the latest native development assets and carries the workflow-managed version state.
-
-          <!-- VERSION_STATE: ${NEXT_STATE} -->
-          <!-- RC_VERSION: ${RC_VERSION} -->
-          <!-- CI_RUN_ID: ${{ github.run_id }} -->
-          EOF
-          )
-
-          if gh release view dev --repo "${{ github.repository }}" --json isDraft &>/dev/null; then
-            gh release edit dev \
-              --repo "${{ github.repository }}" \
-              --draft \
-              --prerelease \
-              --title "Development Build" \
-              --notes "$NOTES"
-
-            while IFS= read -r asset; do
-              if [ -n "$asset" ]; then
-                gh release delete-asset dev "$asset" --repo "${{ github.repository }}" --yes
-              fi
-            done < <(gh release view dev --repo "${{ github.repository }}" --json assets --jq '.assets[].name')
-
-            gh release upload dev \
-              --repo "${{ github.repository }}" \
-              ./bundle/dev/* \
-              --clobber
-          else
-            gh release create dev \
-              --repo "${{ github.repository }}" \
-              --target "${{ github.sha }}" \
-              --draft \
-              --prerelease \
-              --title "Development Build" \
-              --notes "$NOTES" \
-              ./bundle/dev/*
-          fi
-
-  bundle-rc:
+  bundle-promotable:
     runs-on: ubuntu-latest
-    needs: [version, publish-rc]
-
+    needs: [version, publish-promotable]
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
-
-      - name: Download RC artifacts
+      - name: Setup .NET
+        uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7
+        with:
+          dotnet-version: '10.0.x'
+      - name: Download promotable artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          pattern: native-rc-*
-          path: ./artifacts/rc
+          pattern: native-promotable-*
+          path: ./artifacts/promotable
           merge-multiple: true
-
-      - name: Create RC bundle
-        shell: pwsh
-        run: ./scripts/Merge-ReleaseBundle.ps1 -InputDirectory './artifacts/rc' -OutputDirectory './bundle/rc' -Version '${{ needs.version.outputs.rc_version }}'
-
-      - name: Upload RC bundle artifact
+      - name: Create promotable bundle
+        shell: bash
+        run: dotnet ./scripts/merge-release-bundle.cs -- --input-directory './artifacts/promotable' --output-directory './bundle/promotable' --release-version '${{ needs.version.outputs.release_version }}' --source-commit '${{ github.sha }}'
+      - name: Upload promotable bundle artifact
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         with:
-          name: native-rc-bundle
-          path: ./bundle/rc/*
+          name: native-promotable-bundle
+          path: ./bundle/promotable/*
           retention-days: 90
+
+  update-release-state:
+    runs-on: ubuntu-latest
+    needs: [version, bundle-dev, bundle-promotable]
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+      - name: Publish next release state
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ./artifacts/release-state
+          printf '%s\n' '${{ needs.version.outputs.next_state }}' |
+            jq -R 'split("|") | {base: .[0], phase: .[1], phaseNumber: (.[2] | tonumber), devNumber: (.[3] | tonumber), pending: .[4]}' \
+              > ./artifacts/release-state/version-state.json
+          bash ./scripts/publish-branch-content.sh release-state ./artifacts/release-state "Update release state after CI for ${{ needs.version.outputs.dev_version }}"
