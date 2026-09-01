@@ -626,6 +626,10 @@ The release system is split into narrowly scoped workflows:
 
 Mutable version state lives in `version-state.json` on the workflow-managed `release-state` branch. Release-state writers share one concurrency group.
 
+See [Release, signing, provenance, and self-update](docs/release-and-provenance.md)
+for the repository-specific architecture, trust model, setup, recovery, and
+verification procedures.
+
 ### Typical maintainer flow
 
 1. Open a pull request and let `pr.yml` validate restore/build/test behavior.
