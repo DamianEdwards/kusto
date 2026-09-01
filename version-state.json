@@ -1,7 +1,7 @@
 {
   "base": "0.3.1",
   "phase": "pre",
-  "phaseNumber": 2,
-  "devNumber": 2,
+  "phaseNumber": 3,
+  "devNumber": 0,
   "pending": "none"
 }
