@@ -27,9 +27,16 @@ public sealed class AzureTokenProvider : ITokenProvider
 
     private static TokenCredential CreateCredential(Uri authorityHost)
     {
-        return new DefaultAzureCredential(new DefaultAzureCredentialOptions
+        return new DefaultAzureCredential(CreateDefaultCredentialOptions(authorityHost));
+    }
+
+    internal static DefaultAzureCredentialOptions CreateDefaultCredentialOptions(Uri authorityHost)
+    {
+        return new DefaultAzureCredentialOptions
         {
-            AuthorityHost = authorityHost
-        });
+            AuthorityHost = authorityHost,
+            ExcludeBrokerCredential = true,
+            ExcludeVisualStudioCodeCredential = true
+        };
     }
 }

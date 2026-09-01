@@ -81,3 +81,16 @@ jobs:
           validate-native-aot: 'true'
           aot-runtime-identifier: ${{ matrix.rid }}
 
+  publish-windows-arm64:
+    needs: [build]
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - name: Publish and validate Windows ARM64 package
+        uses: ./.github/actions/publish-native
+        with:
+          runtime-identifier: win-arm64
+          version: 0.0.0-pr.${{ github.event.pull_request.number }}
+          artifacts-directory: './artifacts/pr-win-arm64'
+          artifact-name: native-pr-win-arm64

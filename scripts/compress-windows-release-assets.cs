@@ -13,11 +13,6 @@ var outputDirectoryOption = new Option<string>("--output-directory") { Required 
 var requiredPayloadFiles = new[]
 {
     "kusto.exe",
-    "libSkiaSharp.dll",
-    "libHarfBuzzSharp.dll",
-    "libsodium.dll",
-    "LICENSE",
-    "THIRD-PARTY-NOTICES.md",
     "payload-manifest.json"
 };
 var command = new RootCommand("Repack signed kusto Windows release assets.");

@@ -13,11 +13,6 @@ var workingDirectoryOption = new Option<string>("--working-directory") { Require
 var requiredPayloadFiles = new[]
 {
     "kusto.exe",
-    "libSkiaSharp.dll",
-    "libHarfBuzzSharp.dll",
-    "libsodium.dll",
-    "LICENSE",
-    "THIRD-PARTY-NOTICES.md",
     "payload-manifest.json"
 };
 var command = new RootCommand("Expand kusto Windows archives and emit a staging manifest.");

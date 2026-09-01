@@ -103,18 +103,20 @@ internal sealed class ProvenanceVerifier(ILogger<ProvenanceVerifier> logger)
                 "Authenticode payload verification is only available on Windows.");
         }
 
-        foreach (var fileName in AppIdentity.GetExecutablePayloadFileNames())
+        var payloadFiles = PayloadInstaller.ValidateManifest(payloadDirectory);
+        foreach (var fileName in GetWindowsExecutablePayloadFileNames(payloadFiles))
         {
             var filePath = Path.Combine(payloadDirectory, fileName);
-            if (!File.Exists(filePath))
-            {
-                throw new UserFacingException(
-                    $"The Windows update payload is missing signed file '{fileName}'.");
-            }
-
             await VerifyAuthenticodeAsync(filePath, cancellationToken);
         }
     }
+
+    internal static IReadOnlyList<string> GetWindowsExecutablePayloadFileNames(
+        IEnumerable<string> payloadFiles)
+        => payloadFiles
+            .Where(AppIdentity.IsWindowsExecutablePayloadFile)
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
 
     public async Task VerifyArchiveAttestationAsync(
         string archivePath,

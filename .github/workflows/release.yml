@@ -174,7 +174,7 @@ jobs:
           signing-account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
           certificate-profile-name: ${{ secrets.AZURE_CERT_PROFILE }}
           files-folder: ${{ github.workspace }}\artifacts\windows-assets
-          files-folder-filter: kusto.exe,libSkiaSharp.dll,libHarfBuzzSharp.dll,libsodium.dll
+          files-folder-filter: exe,dll
           files-folder-recurse: true
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com

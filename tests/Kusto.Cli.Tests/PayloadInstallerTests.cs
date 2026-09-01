@@ -15,6 +15,30 @@ public sealed class PayloadInstallerTests
     }
 
     [Fact]
+    public void ValidateManifest_AcceptsAddedPayloadFiles()
+    {
+        using var fixture = new PayloadFixture("future-sidecar.dll", "data/future-format.json");
+
+        var files = PayloadInstaller.ValidateManifest(fixture.Root);
+
+        Assert.Contains("future-sidecar.dll", files);
+        Assert.Contains(
+            Path.Combine("data", "future-format.json"),
+            files,
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ValidateManifest_AcceptsPayloadWithoutPreviousSidecars()
+    {
+        using var fixture = new PayloadFixture();
+
+        var files = PayloadInstaller.ValidateManifest(fixture.Root);
+
+        Assert.Equal([AppIdentity.GetExecutableFileName()], files);
+    }
+
+    [Fact]
     public void ValidateManifest_RejectsUndeclaredFile()
     {
         using var fixture = new PayloadFixture();
@@ -43,21 +67,51 @@ public sealed class PayloadInstallerTests
         Assert.Contains("outside", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void ValidateManifest_RejectsMissingExecutable()
+    {
+        using var fixture = new PayloadFixture("future.dat");
+        File.Delete(Path.Combine(fixture.Root, AppIdentity.GetExecutableFileName()));
+        fixture.WriteManifest(["future.dat"]);
+
+        var exception = Assert.Throws<UserFacingException>(
+            () => PayloadInstaller.ValidateManifest(fixture.Root));
+
+        Assert.Contains(AppIdentity.GetExecutableFileName(), exception.Message, StringComparison.Ordinal);
+    }
+
     private sealed class PayloadFixture : IDisposable
     {
-        public PayloadFixture()
+        public PayloadFixture(params string[] additionalFiles)
         {
             Root = Path.Combine(
                 Path.GetTempPath(),
                 $"kusto-payload-test-{Guid.NewGuid():N}");
             Directory.CreateDirectory(Root);
-            var files = AppIdentity.GetExecutablePayloadFileNames().ToArray();
+            var files = new[] { AppIdentity.GetExecutableFileName() }
+                .Concat(additionalFiles)
+                .ToArray();
             foreach (var file in files)
             {
-                File.WriteAllText(Path.Combine(Root, file), file);
+                var path = Path.Combine(Root, file);
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                File.WriteAllText(path, file);
             }
 
-            var manifest = new PayloadManifest { Files = [.. files] };
+            WriteManifest(files);
+        }
+
+        public void WriteManifest(IEnumerable<string> files)
+        {
+            var manifest = new PayloadManifest
+            {
+                Files =
+                [
+                    .. files
+                        .Select(path => path.Replace('\\', '/'))
+                        .Order(StringComparer.Ordinal)
+                ]
+            };
             File.WriteAllText(
                 Path.Combine(Root, "payload-manifest.json"),
                 JsonSerializer.Serialize(

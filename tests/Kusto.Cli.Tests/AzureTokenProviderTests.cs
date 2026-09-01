@@ -49,6 +49,16 @@ public sealed class AzureTokenProviderTests
         Assert.Equal("https://kusto.kusto.windows.net/.default", Assert.Single(requestContext!.Value.Scopes));
     }
 
+    [Fact]
+    public void CreateDefaultCredentialOptions_PreservesNonBrokerCredentialChain()
+    {
+        var options = AzureTokenProvider.CreateDefaultCredentialOptions(AzureAuthorityHosts.AzurePublicCloud);
+
+        Assert.Equal(AzureAuthorityHosts.AzurePublicCloud.AbsoluteUri, options.AuthorityHost.AbsoluteUri);
+        Assert.True(options.ExcludeBrokerCredential);
+        Assert.True(options.ExcludeVisualStudioCodeCredential);
+    }
+
     private sealed class RecordingTokenCredential(Func<TokenRequestContext, AccessToken> tokenFactory) : TokenCredential
     {
         private readonly Func<TokenRequestContext, AccessToken> _tokenFactory = tokenFactory;

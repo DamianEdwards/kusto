@@ -176,7 +176,10 @@ Each archive contains:
 
 `payload-manifest.json` is a sorted list of every install-managed file except
 the manifest itself. Packaging, installers, and self-update reject missing,
-undeclared, unsafe, or unsupported paths.
+undeclared, or unsafe paths. The manifest is intentionally forward-compatible:
+later releases may add or remove managed files without changing a hard-coded
+updater allowlist. Official Windows releases sign and verify every declared
+`.exe` and `.dll`.
 
 ## Trust model
 
@@ -242,6 +245,10 @@ kusto config --set include_prerelease_updates=true
 Checksums and metadata are always required. `--skip-provenance-checks` exists
 for an explicitly trusted local test source; it does not disable checksum
 verification. `KUSTO_DISABLE_SELF_UPDATES=1` disables update checks.
+
+Versions through `0.3.1` use the earlier fixed payload allowlist. If a later
+release adds runtime files, users of those versions must run the current
+installer once; subsequent updates use the manifest-driven contract.
 
 The updater validates the downloaded version and packaged chart stack before
 staging. It performs a manifest-managed file transaction:
