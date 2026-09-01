@@ -79,7 +79,9 @@ jobs:
           test "$(jq -r '.path' <<< "$RUN_JSON")" = ".github/workflows/ci.yml" || { echo "::error::Run ${CI_RUN_ID} did not execute .github/workflows/ci.yml."; exit 1; }
           test "$(jq -r '.status' <<< "$RUN_JSON")" = "completed" || { echo "::error::Run ${CI_RUN_ID} is not complete."; exit 1; }
           test "$(jq -r '.conclusion' <<< "$RUN_JSON")" = "success" || { echo "::error::Run ${CI_RUN_ID} did not succeed."; exit 1; }
-          test "$(jq -r '.event' <<< "$RUN_JSON")" = "push" || { echo "::error::Run ${CI_RUN_ID} was not triggered by a push."; exit 1; }
+          RUN_EVENT=$(jq -r '.event' <<< "$RUN_JSON")
+          [[ "$RUN_EVENT" == push || "$RUN_EVENT" == workflow_dispatch ]] ||
+            { echo "::error::Run ${CI_RUN_ID} was not triggered by a main push or manual dispatch."; exit 1; }
           test "$(jq -r '.head_branch' <<< "$RUN_JSON")" = "main" || { echo "::error::Run ${CI_RUN_ID} is not from main."; exit 1; }
           test "$(jq -r '.head_repository.full_name' <<< "$RUN_JSON")" = "${{ github.repository }}" || { echo "::error::Run ${CI_RUN_ID} is from a different repository."; exit 1; }
           CI_HEAD_SHA=$(jq -r '.head_sha' <<< "$RUN_JSON")

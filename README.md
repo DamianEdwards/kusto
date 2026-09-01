@@ -616,7 +616,7 @@ dotnet test kusto.slnx
 The release system is split into narrowly scoped workflows:
 
 - `pr.yml` validates scripts, restore/build/test behavior, NativeAOT, and packaged runtime behavior.
-- `ci.yml` calculates versions, publishes six development and six promotable archives, creates a versioned development prerelease, and advances `release-state`.
+- `ci.yml` runs on main pushes or manual dispatch, calculates versions, publishes six development and six promotable archives, creates a versioned development prerelease, and advances `release-state`.
 - `bump-version.yml` moves the release state between `pre`, `rc`, and `rtm`.
 - `publish-release.yml` validates a successful `main` CI run, creates its annotated version tag, and dispatches promotion.
 - `release.yml` promotes the exact prebuilt bundle without rebuilding, requires production approval, signs every Windows executable payload, attests final archives, publishes generated release notes, and advances release state.
