@@ -15,7 +15,10 @@ on:
         options: ['', pre, rc, rtm]
 
 concurrency:
-  group: release-state
+  # This workflow dispatches release.yml. Keeping both in the release-state
+  # group can strand the child run behind the parent on GitHub Actions.
+  # release.yml itself remains serialized with every release-state writer.
+  group: publish-release
   cancel-in-progress: false
   queue: max
 
