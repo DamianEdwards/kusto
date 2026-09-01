@@ -341,7 +341,7 @@ internal sealed class ProvenanceVerifier(ILogger<ProvenanceVerifier> logger)
         return File.Exists(candidate) ? candidate : "powershell.exe";
     }
 
-    private static string GetWindowsPowerShellModulePath()
+    internal static string GetWindowsPowerShellModulePath()
     {
         var modulePaths = new List<string>();
         var documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
