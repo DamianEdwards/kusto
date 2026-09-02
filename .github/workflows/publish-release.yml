@@ -1,4 +1,4 @@
-name: Publish Release
+name: Start App Release
 
 on:
   workflow_dispatch:
@@ -54,7 +54,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test '${{ github.ref }}' = 'refs/heads/main' || { echo "::error::Publish Release must be dispatched from main."; exit 1; }
+          test '${{ github.ref }}' = 'refs/heads/main' || { echo "::error::Start App Release must be dispatched from main."; exit 1; }
           RELEASE_STATE_REF=$(git ls-remote --heads origin release-state)
           if [ -n "$RELEASE_STATE_REF" ]; then
             git fetch origin release-state
@@ -161,4 +161,4 @@ jobs:
           echo "- **Tag:** \`${TAG}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- **CI run:** \`${CI_RUN_ID}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Commit:** \`${CI_HEAD_SHA}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- If dispatch failed, run **Release** manually on \`${TAG}\` with CI run \`${CI_RUN_ID}\`." >> "$GITHUB_STEP_SUMMARY"
+          echo "- If dispatch failed, run **Finalize App Release** manually on \`${TAG}\` with CI run \`${CI_RUN_ID}\`." >> "$GITHUB_STEP_SUMMARY"

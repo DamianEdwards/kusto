@@ -1,4 +1,4 @@
-name: Attest Install Scripts
+name: Finalize Install Script Release
 
 on:
   workflow_dispatch:

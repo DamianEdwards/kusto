@@ -670,10 +670,10 @@ The release system is split into narrowly scoped workflows:
 - `pr.yml` validates scripts, restore/build/test behavior, NativeAOT, and packaged runtime behavior.
 - `ci.yml` runs on main pushes or manual dispatch, calculates versions, publishes six development and six promotable archives, creates a versioned development prerelease, and advances `release-state`.
 - `bump-version.yml` moves the release state between `pre`, `rc`, and `rtm`.
-- `publish-release.yml` validates a successful `main` CI run, creates its annotated version tag, and dispatches promotion.
-- `release.yml` promotes the exact prebuilt bundle without rebuilding, requires production approval, signs every Windows executable payload, attests final archives, publishes generated release notes, and advances release state.
-- `install-scripts.yml` signs and snapshots both installers to the protected `install-scripts` branch.
-- `attest-install-scripts.yml` attests the immutable installer snapshot and publishes its non-latest release.
+- **Start App Release** (`publish-release.yml`) is the normal manual entry point for an app release. It validates a successful `main` CI run, creates its annotated version tag, and dispatches finalization.
+- **Finalize App Release** (`release.yml`) runs automatically after **Start App Release**. It promotes the exact prebuilt bundle without rebuilding, requires production approval, signs every Windows executable payload, attests final archives, publishes generated release notes, and advances release state. Run it manually only to recover a failed dispatch after the release tag was created.
+- **Start Install Script Release** (`install-scripts.yml`) is the normal manual entry point for publishing the installers. It signs and snapshots both installers to the protected `install-scripts` branch.
+- **Finalize Install Script Release** (`attest-install-scripts.yml`) runs automatically after **Start Install Script Release**. It attests the immutable installer snapshot and publishes its non-latest release. Run it manually only to recover a failed dispatch on the generated snapshot tag.
 - `releases-cleanup.yml` retains a configurable number of development and installer snapshots.
 
 Mutable version state lives in `version-state.json` on the workflow-managed `release-state` branch. Release-state writers share one concurrency group.
@@ -687,9 +687,9 @@ verification procedures.
 1. Open a pull request and let `pr.yml` validate restore/build/test behavior.
 2. Merge to `main`, which lets `ci.yml` calculate versions, publish native assets, create a versioned development prerelease, and update `release-state`.
 3. When you want to move between `pre`, `rc`, or `rtm`, run `bump-version.yml`.
-4. Run `publish-release.yml` for the successful CI run to tag and promote its already-built official bundle.
+4. Run **Start App Release** (`publish-release.yml`) for the successful CI run to tag and promote its already-built official bundle.
 5. Approve the `production` deployment. The release workflow signs, attests, and publishes the exact tagged bundle.
-6. Run `install-scripts.yml` when installer source changes, then approve its signed immutable snapshot.
+6. Run **Start Install Script Release** (`install-scripts.yml`) when installer source changes, then approve its signed immutable snapshot.
 
 ## Native release asset layout
 

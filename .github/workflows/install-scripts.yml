@@ -1,4 +1,4 @@
-name: Publish Install Scripts
+name: Start Install Script Release
 
 on:
   workflow_dispatch:
