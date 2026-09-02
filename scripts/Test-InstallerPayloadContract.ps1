@@ -95,10 +95,59 @@ try
     Assert-FileExists -Path (Join-Path $installDirectory 'future-sidecar.dll')
     Assert-FileExists -Path (Join-Path $installDirectory 'data\future-format.json')
 
+    $completionProfile = Join-Path $root 'Microsoft.PowerShell_profile.ps1'
+    $completionScript = Join-Path $root 'missing\kusto-completions.ps1'
+    @(
+        '$env:KUSTO_INSTALLER_PROFILE_TEST = $true'
+        '# Added by the kusto installer for shell completion'
+        ". '$completionScript'"
+    ) | Set-Content -LiteralPath $completionProfile
+
+    if (-not (Update-PowerShellCompletionProfile -ProfilePath $completionProfile -ScriptPath $completionScript))
+    {
+        throw 'The legacy PowerShell completion profile entry was not updated.'
+    }
+
+    $profileLines = @(Get-Content -LiteralPath $completionProfile)
+    if ($profileLines -contains ". '$completionScript'")
+    {
+        throw 'The legacy unguarded PowerShell completion profile entry was retained.'
+    }
+    if (-not ($profileLines | Where-Object { $_ -like '*Get-Command*Test-Path*' }))
+    {
+        throw 'The guarded PowerShell completion profile entry was not written.'
+    }
+
+    . $completionProfile
+    if ($env:KUSTO_INSTALLER_PROFILE_TEST -ne 'True')
+    {
+        throw 'The guarded PowerShell completion profile could not be loaded.'
+    }
+
+    New-Item -ItemType Directory -Path (Split-Path -Parent $completionScript) -Force | Out-Null
+    'throw ''The completion script should not load when kusto is unavailable.''' |
+        Set-Content -LiteralPath $completionScript
+    $savedPath = $env:PATH
+    try
+    {
+        $env:PATH = ''
+        . $completionProfile
+    }
+    finally
+    {
+        $env:PATH = $savedPath
+    }
+
+    if (Update-PowerShellCompletionProfile -ProfilePath $completionProfile -ScriptPath $completionScript)
+    {
+        throw 'The PowerShell completion profile update was not idempotent.'
+    }
+
     Write-Host 'Installer payload contract validation passed.'
 }
 finally
 {
+    Remove-Item Env:KUSTO_INSTALLER_PROFILE_TEST -ErrorAction SilentlyContinue
     if (Test-Path $root)
     {
         Remove-Item $root -Recurse -Force
