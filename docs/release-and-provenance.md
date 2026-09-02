@@ -104,9 +104,10 @@ discarding pending runs.
 
 ### Promotion dispatcher
 
-`.github/workflows/publish-release.yml` is the maintainer entry point for an
-official release. It has its own `publish-release` concurrency group because it
-dispatches `release.yml`; putting the parent and child runs in the same group
+**Start App Release** (`.github/workflows/publish-release.yml`) is the
+maintainer entry point for an official release. It has its own
+`publish-release` concurrency group because it dispatches **Finalize App
+Release** (`release.yml`); putting the parent and child runs in the same group
 can strand the child run behind its completed parent.
 
 Before the production approval gate, it verifies that the selected CI run:
@@ -125,8 +126,9 @@ dispatches `release.yml` on that exact tag.
 
 ### Signing and release publication
 
-`.github/workflows/release.yml` validates the tag and CI run again, downloads
-the promotable bundle, and performs the official publication:
+**Finalize App Release** (`.github/workflows/release.yml`) validates the tag and
+CI run again, downloads the promotable bundle, and performs the official
+publication:
 
 1. The `production` environment gates the Windows signing job.
 2. Azure Artifact Signing signs every Windows executable payload:
@@ -366,15 +368,16 @@ Then merge a change or dispatch `ci.yml` to produce artifacts from that state.
 ### Publish an official release
 
 1. Identify the successful `ci.yml` run to promote.
-2. Dispatch `publish-release.yml` on `main` with that run ID.
+2. Manually run **Start App Release** (`publish-release.yml`) on `main` with
+   that run ID.
 3. Approve the production tag-publication deployment.
 4. Confirm the annotated tag points to the CI source SHA.
-5. Approve the production signing deployment in `release.yml`.
+5. Approve the production signing deployment in **Finalize App Release**.
 6. Confirm the release, attestations, and release-state advancement.
 
-If tag dispatch fails after the tag is pushed, dispatch `release.yml` manually
-on the existing tag with the original CI run ID and phase. Do not recreate the
-tag.
+**Finalize App Release** normally starts automatically. If tag dispatch fails
+after the tag is pushed, run it manually on the existing tag with the original
+CI run ID and phase. Do not recreate the tag.
 
 Promote a CI run whose source commit contains the current workflow files.
 GitHub correctly rejects a workflow token attempting to create a tag at an
@@ -382,10 +385,16 @@ older commit when that operation would introduce different workflow content.
 
 ### Publish installers
 
-1. Dispatch `install-scripts.yml` on `main`.
+1. Manually run **Start Install Script Release** (`install-scripts.yml`) on
+   `main`.
 2. Approve signing and branch/tag publication.
-3. Approve `attest-install-scripts.yml` for the generated snapshot tag.
+3. Approve **Finalize Install Script Release** when it starts automatically for
+   the generated snapshot tag.
 4. Verify the vanity and raw branch URLs return the same script bytes.
+
+If the automatic dispatch fails after the snapshot tag is pushed, run
+**Finalize Install Script Release** manually on that existing tag. Do not
+recreate the tag.
 
 ### Clean old snapshots
 
