@@ -208,7 +208,11 @@ Official archives are attested by `release.yml` on the exact release tag.
 
 - The CLI reads `attestations.jsonl` and verifies it locally with the `Sigstore`
   package.
-- `install.sh` verifies the same bundle with `cosign`.
+- `install.sh` verifies the same bundle with Cosign 2.4.0 or newer. It uses the
+  explicit new-bundle flag required by Cosign 2.x and the default bundle mode
+  used by Cosign 3.x, then independently requires the signed DSSE envelope to
+  contain SLSA v1 provenance for compatibility with Cosign versions that do not
+  enforce the requested predicate type themselves.
 - Both policies require the GitHub Actions OIDC issuer and this exact identity:
 
 ```text

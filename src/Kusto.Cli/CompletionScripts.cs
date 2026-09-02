@@ -104,6 +104,11 @@ internal static class CompletionScripts
         return $$"""
             #compdef {{registrationNames}}
 
+            autoload -Uz compinit
+            if (( ! $+functions[compdef] )); then
+                compinit
+            fi
+
             {{functionName}}()
             {
                 local command

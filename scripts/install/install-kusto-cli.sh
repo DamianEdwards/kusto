@@ -11,6 +11,10 @@ UPDATE_PATH=true
 REPOSITORY="DamianEdwards/kusto-cli"
 SKIP_PROVENANCE=false
 VERBOSE=false
+NO_EXECUTE=false
+MINIMUM_COSIGN_VERSION="2.4.0"
+COSIGN_VERSION=""
+COSIGN_VERIFY_ARGS=(--type slsaprovenance1)
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -27,6 +31,7 @@ while [[ $# -gt 0 ]]; do
             REPOSITORY="$2"; shift 2 ;;
         --skip-provenance) SKIP_PROVENANCE=true; shift ;;
         --verbose) VERBOSE=true; shift ;;
+        --no-execute) NO_EXECUTE=true; shift ;;
         -h|--help)
             cat <<'HELP'
 install-kusto-cli.sh — Linux and macOS installer for kusto
@@ -83,8 +88,32 @@ print_cosign_install_instructions() {
 assert_cosign_available() {
     if ! command -v cosign >/dev/null 2>&1; then
         print_cosign_install_instructions
-        die "cosign is required for artifact attestation verification."
+        die "cosign ${MINIMUM_COSIGN_VERSION} or newer is required for artifact attestation verification."
     fi
+
+    local output version comparison major
+    output=$(cosign version 2>&1) ||
+        die "Could not run 'cosign version'. cosign ${MINIMUM_COSIGN_VERSION} or newer is required."
+    version=$(printf '%s\n' "$output" |
+        sed -nE 's/^[[:space:]]*GitVersion:[[:space:]]*v?([^[:space:]]+).*$/\1/p' |
+        head -n 1)
+    if [[ -z "$version" ]] || ! is_semver "$version"; then
+        die "Could not determine the installed cosign version. cosign ${MINIMUM_COSIGN_VERSION} or newer is required."
+    fi
+
+    comparison=$(compare_semver "$version" "$MINIMUM_COSIGN_VERSION")
+    if [[ "$comparison" == -1 ]]; then
+        print_cosign_install_instructions
+        die "cosign ${MINIMUM_COSIGN_VERSION} or newer is required, but ${version} was found."
+    fi
+
+    COSIGN_VERSION="$version"
+    COSIGN_VERIFY_ARGS=(--type slsaprovenance1)
+    major="${version%%.*}"
+    if (( 10#$major < 3 )); then
+        COSIGN_VERIFY_ARGS=(--new-bundle-format --type slsaprovenance1)
+    fi
+    log_verbose "Using cosign ${version} for artifact attestation verification."
 }
 
 invoke_github_api() {
@@ -257,6 +286,16 @@ escape_regex() {
     printf '%s' "$1" | sed -e 's/[][\\.^$*+?{}|()]/\\&/g'
 }
 
+is_slsa_v1_provenance_bundle() {
+    jq -e '
+        .dsseEnvelope.payload |
+        @base64d |
+        fromjson |
+        ._type == "https://in-toto.io/Statement/v1" and
+        .predicateType == "https://slsa.dev/provenance/v1"
+    ' "$1" >/dev/null 2>&1
+}
+
 assert_artifact_attestation() {
     local file_path="$1" repo="$2" expected_ref="$3" bundles_path="$4"
     [[ -s "$bundles_path" ]] ||
@@ -273,15 +312,19 @@ assert_artifact_attestation() {
         local output=""
         if output=$(cosign verify-blob-attestation \
             --bundle "$bundle" \
-            --new-bundle-format \
+            "${COSIGN_VERIFY_ARGS[@]}" \
             --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
             --certificate-identity-regexp "$identity_pattern" \
             "$file_path" 2>&1); then
-            rm -f "$bundle"
-            log_verbose "$output"
-            return
+            if is_slsa_v1_provenance_bundle "$bundle"; then
+                rm -f "$bundle"
+                log_verbose "$output"
+                return
+            fi
+            last_error="The verified attestation did not contain signed SLSA v1 provenance."
+        else
+            last_error="$output"
         fi
-        last_error="$output"
         rm -f "$bundle"
         i=$((i + 1))
     done < <(jq -c '.' "$bundles_path")
@@ -514,6 +557,31 @@ configure_completion() {
     echo "Enabled ${shell_name} completion in '$profile'."
 }
 
+get_azure_cli_install_url() {
+    case "$1" in
+        osx) echo "https://learn.microsoft.com/cli/azure/install-azure-cli-macos" ;;
+        linux) echo "https://learn.microsoft.com/cli/azure/install-azure-cli-linux" ;;
+        *) return 1 ;;
+    esac
+}
+
+print_azure_cli_guidance() {
+    local platform="$1"
+    command -v az >/dev/null 2>&1 && return
+
+    local platform_name install_url
+    case "$platform" in
+        osx) platform_name="macOS" ;;
+        linux) platform_name="Linux" ;;
+        *) return ;;
+    esac
+    install_url=$(get_azure_cli_install_url "$platform")
+
+    echo ""
+    echo "Azure CLI was not found. If no other Azure credential is configured, install it and run 'az login' before querying Kusto."
+    echo "Install Azure CLI on ${platform_name}: ${install_url}"
+}
+
 install_kusto() {
     require_command curl
     require_command jq
@@ -523,12 +591,12 @@ install_kusto() {
     architecture=$(get_architecture)
     rid="${platform}-${architecture}"
     asset="kusto-${rid}.tar.gz"
+    if [[ "$QUALITY" != Dev && "$SKIP_PROVENANCE" != true ]]; then assert_cosign_available; fi
     release=$(get_release_for_quality "$REPOSITORY" "$QUALITY" "$asset")
     tag=$(echo "$release" | jq -r '.tag_name')
     asset_url=$(release_asset_url "$release" "$asset")
     label="${QUALITY} release (${tag})"
 
-    if [[ "$QUALITY" != Dev && "$SKIP_PROVENANCE" != true ]]; then assert_cosign_available; fi
     if [[ "$QUALITY" == Dev && "$FORCE" != true ]]; then
         if [[ -e /dev/tty ]]; then
             printf "Dev installs verify checksums but skip provenance. Type YES to continue: "
@@ -604,6 +672,9 @@ install_kusto() {
     if [[ "$UPDATE_PATH" == true ]]; then ensure_path "$install_directory"; else echo "Skipped PATH updates."; fi
     configure_completion "$destination"
     echo "kusto ${installed_version} is ready to use from '${install_directory}'."
+    print_azure_cli_guidance "$platform"
 }
 
-install_kusto
+if [[ "$NO_EXECUTE" != true ]]; then
+    install_kusto
+fi
