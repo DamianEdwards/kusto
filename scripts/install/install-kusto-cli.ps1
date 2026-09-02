@@ -141,6 +141,80 @@ function Get-NativeCommandOutput
     }
 }
 
+function Get-PowerShellCompletionProfileEntry
+{
+    param([Parameter(Mandatory)][string]$ScriptPath)
+
+    $escapedScriptPath = $ScriptPath.Replace("'", "''")
+    return "if ((Get-Command -Name 'kusto' -CommandType Application -ErrorAction SilentlyContinue) -and (Test-Path -LiteralPath '$escapedScriptPath')) { . '$escapedScriptPath' }"
+}
+
+function Update-PowerShellCompletionProfile
+{
+    param(
+        [Parameter(Mandatory)][string]$ProfilePath,
+        [Parameter(Mandatory)][string]$ScriptPath
+    )
+
+    $marker = '# Added by the kusto installer for shell completion'
+    $profileEntry = Get-PowerShellCompletionProfileEntry -ScriptPath $ScriptPath
+    $profileContent = if (Test-Path -LiteralPath $ProfilePath) { Get-Content -LiteralPath $ProfilePath -Raw } else { '' }
+    $newline = if ($profileContent.Contains("`r`n")) { "`r`n" } else { [Environment]::NewLine }
+    $profileLines = @($profileContent -split '\r?\n')
+    $updatedLines = [System.Collections.Generic.List[string]]::new()
+    $entryAdded = $false
+
+    for ($index = 0; $index -lt $profileLines.Count; $index++)
+    {
+        if ($profileLines[$index].Trim() -eq $marker)
+        {
+            if (-not $entryAdded)
+            {
+                $updatedLines.Add($marker)
+                $updatedLines.Add($profileEntry)
+                $entryAdded = $true
+            }
+
+            if ($index + 1 -lt $profileLines.Count)
+            {
+                $index++
+            }
+            continue
+        }
+
+        $updatedLines.Add($profileLines[$index])
+    }
+
+    if (-not $entryAdded)
+    {
+        if ($updatedLines.Count -eq 1 -and $updatedLines[0] -eq '')
+        {
+            $updatedLines.Clear()
+        }
+        elseif ($updatedLines.Count -gt 0 -and $updatedLines[$updatedLines.Count - 1] -ne '')
+        {
+            $updatedLines.Add('')
+        }
+
+        $updatedLines.Add($marker)
+        $updatedLines.Add($profileEntry)
+    }
+
+    $updatedContent = $updatedLines -join $newline
+    if ($updatedContent -eq $profileContent)
+    {
+        return $false
+    }
+
+    $profileDirectory = Split-Path -Parent $ProfilePath
+    if (-not [string]::IsNullOrWhiteSpace($profileDirectory))
+    {
+        New-Item -ItemType Directory -Path $profileDirectory -Force | Out-Null
+    }
+    Set-Content -LiteralPath $ProfilePath -Value $updatedContent -NoNewline -Encoding utf8
+    return $true
+}
+
 function Try-EnablePowerShellCompletion
 {
     param([Parameter(Mandatory)][string]$CommandPath)
@@ -156,21 +230,8 @@ function Try-EnablePowerShellCompletion
         $profilePath = Get-PowerShellCompletionProfilePath
         $scriptPath = Join-Path (Split-Path -Parent $CommandPath) 'kusto-completions.ps1'
         $scriptContent = Get-NativeCommandOutput -FilePath $CommandPath -ArgumentList @('completions', 'script', 'pwsh')
-        Set-Content -Path $scriptPath -Value $scriptContent -Encoding utf8
-        $profileUpdated = $false
-        $profileContent = if (Test-Path $profilePath) { Get-Content -Path $profilePath -Raw } else { '' }
-        if (-not $profileContent.Contains($scriptPath))
-        {
-            $profileDirectory = Split-Path -Parent $profilePath
-            if (-not [string]::IsNullOrWhiteSpace($profileDirectory))
-            {
-                New-Item -ItemType Directory -Path $profileDirectory -Force | Out-Null
-            }
-            Add-Content -Path $profilePath -Value ''
-            Add-Content -Path $profilePath -Value '# Added by the kusto installer for shell completion'
-            Add-Content -Path $profilePath -Value ". '$scriptPath'"
-            $profileUpdated = $true
-        }
+        Set-Content -LiteralPath $scriptPath -Value $scriptContent -Encoding utf8
+        $profileUpdated = Update-PowerShellCompletionProfile -ProfilePath $profilePath -ScriptPath $scriptPath
 
         return [pscustomobject]@{
             Status = 'Enabled'
