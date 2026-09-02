@@ -101,6 +101,11 @@ runs:
       shell: bash
       run: bash ./scripts/verify-shell-syntax.sh
 
+    - name: Validate Unix installer behavior
+      if: steps.changes.outputs.should-run == 'true'
+      shell: bash
+      run: bash ./scripts/Test-UnixInstaller.sh
+
     - name: Build C# file-based apps
       if: steps.changes.outputs.should-run == 'true'
       shell: bash

@@ -31,4 +31,22 @@ public sealed class CompletionScriptsTests
         Assert.Empty(script);
         Assert.Contains("Unsupported shell", error, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void TryGenerate_ZshInitializesCompletionSystemBeforeRegistration()
+    {
+        Assert.True(CompletionScripts.TryGenerate(
+            "zsh",
+            ["kusto"],
+            out var script,
+            out var error));
+        Assert.Empty(error);
+
+        var initializationIndex = script.IndexOf("autoload -Uz compinit", StringComparison.Ordinal);
+        var registrationIndex = script.IndexOf("compdef _kusto kusto", StringComparison.Ordinal);
+
+        Assert.True(initializationIndex >= 0);
+        Assert.True(registrationIndex > initializationIndex);
+        Assert.Contains("$+functions[compdef]", script, StringComparison.Ordinal);
+    }
 }
