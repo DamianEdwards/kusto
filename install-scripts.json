@@ -1,16 +1,16 @@
 {
-  "version": "install-scripts-v2026.09.01.9.1",
-  "sourceCommit": "c797b25c98d273d12b6495dc6e4687508a4eeb9d",
+  "version": "install-scripts-v2026.09.02.10.1",
+  "sourceCommit": "80988e02f2e67adefe26a9c8f5e52a8ea173ee6e",
   "sourceRef": "refs/heads/main",
-  "publishedAt": "2026-09-01T04:23:32.8338389\u002B00:00",
+  "publishedAt": "2026-09-02T00:13:16.4704081\u002B00:00",
   "scripts": [
     {
       "name": "install.ps1",
-      "sha256": "5c9ee1b55cb20963f4c1b8df97d9d4f7abd545075642d7c390b6781f683b3090"
+      "sha256": "bd1bef2a1d36a2f965c89903c430eb89ec52a132590be4bb8cf225bb986eb1fc"
     },
     {
       "name": "install.sh",
-      "sha256": "096cc37bec09ec86ae27706cf1af9d86fd5447c473925769650c378f83468404"
+      "sha256": "255d2c597709c0524345bf1df8f1738cde48016d0e65172f41a099ee74ef6104"
     }
   ]
 }
