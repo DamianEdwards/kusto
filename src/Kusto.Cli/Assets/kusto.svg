@@ -1,0 +1,27 @@
+<!-- Original kusto-cli project artwork, licensed under the repository's MIT license. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="background" x1="128" y1="96" x2="896" y2="928" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#123B57"/>
+      <stop offset="1" stop-color="#071724"/>
+    </linearGradient>
+    <linearGradient id="mark" x1="236" y1="220" x2="662" y2="804" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5EEAD4"/>
+      <stop offset="1" stop-color="#38BDF8"/>
+    </linearGradient>
+  </defs>
+  <rect x="64" y="64" width="896" height="896" rx="224" fill="url(#background)"/>
+  <rect x="76" y="76" width="872" height="872" rx="212" fill="none" stroke="#7DD3FC" stroke-opacity=".22" stroke-width="16"/>
+  <path d="M292 248V776M310 510L612 238M310 510L646 792"
+        fill="none"
+        stroke="url(#mark)"
+        stroke-width="112"
+        stroke-linecap="round"
+        stroke-linejoin="round"/>
+  <path d="M448 626L566 724L448 822M606 812H758"
+        fill="none"
+        stroke="#F8FAFC"
+        stroke-width="44"
+        stroke-linecap="round"
+        stroke-linejoin="round"/>
+</svg>
